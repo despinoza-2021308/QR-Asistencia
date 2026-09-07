@@ -14,6 +14,7 @@ const os = require('os');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { generarExcelConsolidado, generarPdfSesion } = require('./services/reportesService');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -108,7 +109,8 @@ app.use(cors({
         return callback(new Error('Bloqueado por política de seguridad CORS.'));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition']
 }));
 
 app.use(express.json({ limit: '500kb' }));
@@ -997,6 +999,76 @@ app.get('/api/reporte/capacitacion/:capacitacionId', requireAdminAuth, async (re
     } catch (error) {
         console.error('Error al generar reporte:', error);
         res.status(500).json({ error: 'Error interno al generar el reporte' });
+    }
+});
+
+/**
+ * @route   GET /api/reportes/consolidado/:capacitacionId
+ * @desc    Descargar Reporte Consolidado Total en Excel (.xlsx) con matriz ejecutiva cruzada (Protegida)
+ */
+app.get('/api/reportes/consolidado/:capacitacionId', requireAdminAuth, async (req, res) => {
+    const { capacitacionId } = req.params;
+    if (!isValidInteger(capacitacionId)) {
+        return res.status(400).json({ error: 'El ID de la capacitación debe ser un número entero válido.' });
+    }
+
+    try {
+        const buffer = await generarExcelConsolidado(capacitacionId, pool);
+
+        // Obtener título para el nombre de archivo amigable
+        const capRes = await pool.query('SELECT titulo FROM capacitaciones WHERE id = $1', [capacitacionId]);
+        const tituloSeguro = capRes.rows[0]?.titulo 
+            ? capRes.rows[0].titulo.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50) 
+            : `Capacitacion_${capacitacionId}`;
+
+        const nombreArchivo = `Consolidado_Asistencia_${tituloSeguro}.xlsx`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo}"`);
+        res.setHeader('Content-Length', buffer.length);
+
+        return res.status(200).send(buffer);
+    } catch (error) {
+        console.error('Error al generar Excel consolidado:', error);
+        if (error.message === 'Capacitación no encontrada') {
+            return res.status(404).json({ error: 'Capacitación no encontrada.' });
+        }
+        return res.status(500).json({ error: 'Error interno al generar el reporte en Excel.' });
+    }
+});
+
+/**
+ * @route   GET /api/reportes/sesion/:sessionId
+ * @desc    Descargar Reporte de Sesión Individual en PDF (.pdf) formal con lista de acreditados y horas (Protegida)
+ */
+app.get('/api/reportes/sesion/:sessionId', requireAdminAuth, async (req, res) => {
+    const { sessionId } = req.params;
+    if (!isValidInteger(sessionId)) {
+        return res.status(400).json({ error: 'El ID de la sesión debe ser un número entero válido.' });
+    }
+
+    try {
+        const buffer = await generarPdfSesion(sessionId, pool);
+
+        // Obtener nombre de sesión para el archivo
+        const sesRes = await pool.query('SELECT nombre_sesion FROM sesiones WHERE id = $1', [sessionId]);
+        const nombreSeguro = sesRes.rows[0]?.nombre_sesion 
+            ? sesRes.rows[0].nombre_sesion.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40) 
+            : `Sesion_${sessionId}`;
+
+        const nombreArchivo = `Lista_Asistencia_${nombreSeguro}.pdf`;
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo}"`);
+        res.setHeader('Content-Length', buffer.length);
+
+        return res.status(200).send(buffer);
+    } catch (error) {
+        console.error('Error al generar PDF de sesión:', error);
+        if (error.message === 'Sesión no encontrada') {
+            return res.status(404).json({ error: 'Sesión no encontrada.' });
+        }
+        return res.status(500).json({ error: 'Error interno al generar el reporte en PDF.' });
     }
 });
 

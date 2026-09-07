@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { 
     Plus, LogOut, CheckCircle2, AlertCircle, BookOpen, Layers, Users, 
     Search, Trash2, QrCode, Maximize2, ChevronRight, ArrowLeft, Download, 
-    Building2, Laptop, X, Copy, Check, FileSpreadsheet, ShieldCheck, 
+    Building2, Laptop, X, Copy, Check, FileSpreadsheet, FileText, Loader2, ShieldCheck, 
     Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server 
 } from 'lucide-react';
 import logoOne from '../assets/logo.png';
@@ -13,6 +13,7 @@ import TarjetaCapacitacion from './TarjetaCapacitacion';
 import { usePWA } from '../hooks/usePWA';
 import BotonInstalarPWA from './BotonInstalarPWA';
 import BannerOffline from './BannerOffline';
+import { descargarExcelConsolidado, descargarPdfSesion } from '../services/reportes';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -67,6 +68,10 @@ export default function AdminSesiones({ onLogout }) {
     const [mensaje, setMensaje] = useState(null);
     const [filtroTexto, setFiltroTexto] = useState('');
     const [filtroDashboard, setFiltroDashboard] = useState('');
+
+    // Estados de descarga de reportes
+    const [descargandoExcel, setDescargandoExcel] = useState(false);
+    const [descargandoPdfId, setDescargandoPdfId] = useState(null);
 
     // Estado para auto-actualización en vivo (Polling silencioso en tiempo real)
     const [autoRefreshActivo, setAutoRefreshActivo] = useState(true);
@@ -539,6 +544,42 @@ export default function AdminSesiones({ onLogout }) {
         document.body.removeChild(link);
     };
 
+    // Descargar Reporte Consolidado en Excel (.xlsx) Profesional
+    const handleDescargarExcel = async (capId, titulo) => {
+        if (!capId) return;
+        try {
+            setDescargandoExcel(true);
+            hapticTap();
+            const res = await descargarExcelConsolidado(capId, titulo);
+            mostrarAlerta('exito', `Reporte Excel descargado: ${res.filename}`);
+            hapticSuccess();
+        } catch (err) {
+            console.error('Error al descargar Excel:', err);
+            mostrarAlerta('error', err.message || 'Error al generar el reporte en Excel.');
+            hapticError();
+        } finally {
+            setDescargandoExcel(false);
+        }
+    };
+
+    // Descargar Reporte de Sesión Individual en PDF (.pdf) Formal
+    const handleDescargarPdf = async (sesionId, nombreSesion) => {
+        if (!sesionId) return;
+        try {
+            setDescargandoPdfId(sesionId);
+            hapticTap();
+            const res = await descargarPdfSesion(sesionId, nombreSesion);
+            mostrarAlerta('exito', `Lista en PDF descargada: ${res.filename}`);
+            hapticSuccess();
+        } catch (err) {
+            console.error('Error al descargar PDF:', err);
+            mostrarAlerta('error', err.message || 'Error al generar el reporte en PDF.');
+            hapticError();
+        } finally {
+            setDescargandoPdfId(null);
+        }
+    };
+
     // Filtrar lista del dashboard
     const capacitacionesFiltradas = capacitaciones.filter(c => 
         c.titulo.toLowerCase().includes(filtroDashboard.toLowerCase()) ||
@@ -707,6 +748,7 @@ export default function AdminSesiones({ onLogout }) {
                                                 onEliminar={handleEliminarCapacitacion}
                                                 onProyectarQR={setModalQRData}
                                                 onToggle={handleToggleCapacitacion}
+                                                onDescargarExcel={handleDescargarExcel}
                                             />
                                         ))}
                                     </div>
@@ -807,8 +849,22 @@ export default function AdminSesiones({ onLogout }) {
                                 </button>
 
                                 <button
+                                    onClick={() => handleDescargarExcel(capacitacionSeleccionada.id, capacitacionSeleccionada.titulo)}
+                                    disabled={descargandoExcel}
+                                    className="liquid-btn-primary disabled:opacity-50 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-2 shadow-lg shadow-brand-500/25 min-h-[40px]"
+                                    title="Descargar matriz consolidada con participantes y sesiones en formato Excel (.xlsx)"
+                                >
+                                    {descargandoExcel ? (
+                                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                    ) : (
+                                        <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
+                                    )}
+                                    <span>{descargandoExcel ? 'Generando Excel...' : 'Descargar Consolidado (Excel)'}</span>
+                                </button>
+
+                                <button
                                     onClick={() => setModalQRData({ titulo: capacitacionSeleccionada.titulo, url: getQrUrl(capacitacionSeleccionada) })}
-                                    className="liquid-glass-pill hover:bg-white/10 text-slate-200 text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-2"
+                                    className="liquid-glass-pill hover:bg-white/10 text-slate-200 text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-2 min-h-[40px]"
                                 >
                                     <QrCode className="w-4 h-4 text-brand-400" />
                                     <span>Proyectar QR</span>
@@ -896,14 +952,30 @@ export default function AdminSesiones({ onLogout }) {
                                                 </h3>
                                             </div>
 
-                                            <button
-                                                onClick={exportarCSVSesion}
-                                                disabled={sesionDetalle.total_asistentes === 0}
-                                                className="liquid-btn-primary disabled:opacity-40 text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition-all inline-flex items-center gap-2"
-                                            >
-                                                <Download className="w-4 h-4" />
-                                                <span>Descargar CSV</span>
-                                            </button>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <button
+                                                    onClick={() => handleDescargarPdf(sesionDetalle.sesion.id, sesionDetalle.sesion.nombre_sesion)}
+                                                    disabled={descargandoPdfId === sesionDetalle.sesion.id}
+                                                    className="liquid-btn-primary disabled:opacity-40 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-all inline-flex items-center gap-2 shadow-lg shadow-brand-500/20 min-h-[40px]"
+                                                    title="Descargar lista oficial de acreditación en formato PDF"
+                                                >
+                                                    {descargandoPdfId === sesionDetalle.sesion.id ? (
+                                                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                                    ) : (
+                                                        <FileText className="w-4 h-4 text-white" />
+                                                    )}
+                                                    <span>{descargandoPdfId === sesionDetalle.sesion.id ? 'Generando PDF...' : 'Descargar Lista (PDF)'}</span>
+                                                </button>
+
+                                                <button
+                                                    onClick={exportarCSVSesion}
+                                                    disabled={sesionDetalle.total_asistentes === 0}
+                                                    className="liquid-glass-pill hover:bg-white/10 text-slate-300 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all inline-flex items-center gap-2 min-h-[40px]"
+                                                >
+                                                    <Download className="w-4 h-4" />
+                                                    <span>CSV</span>
+                                                </button>
+                                            </div>
                                         </div>
 
                                         {sesionDetalle.total_asistentes === 0 ? (
@@ -1057,13 +1129,28 @@ export default function AdminSesiones({ onLogout }) {
                                                         </div>
                                                     </div>
 
-                                                    <button
-                                                        onClick={() => verAsistentesSesion(sesion.id)}
-                                                        className="w-full liquid-glass-pill hover:bg-white/10 text-slate-200 hover:text-white text-xs font-semibold py-2.5 px-3 rounded-2xl transition-all duration-200 inline-flex items-center justify-center gap-1.5"
-                                                    >
-                                                        <Users className="w-3.5 h-3.5 text-brand-400" />
-                                                        <span>Ver Asistentes</span>
-                                                    </button>
+                                                    <div className="grid grid-cols-2 gap-2 mt-2">
+                                                        <button
+                                                            onClick={() => verAsistentesSesion(sesion.id)}
+                                                            className="liquid-glass-pill hover:bg-white/10 text-slate-200 hover:text-white text-xs font-semibold py-2.5 px-3 rounded-2xl transition-all duration-200 inline-flex items-center justify-center gap-1.5 min-h-[40px]"
+                                                        >
+                                                            <Users className="w-3.5 h-3.5 text-brand-400" />
+                                                            <span>Ver ({sesion.total_asistentes ?? 0})</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDescargarPdf(sesion.id, sesion.nombre_sesion)}
+                                                            disabled={descargandoPdfId === sesion.id}
+                                                            className="bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-brand-300 hover:text-brand-200 text-xs font-semibold py-2.5 px-3 rounded-2xl transition-all duration-200 inline-flex items-center justify-center gap-1.5 min-h-[40px]"
+                                                            title="Descargar lista oficial de asistencia en formato PDF"
+                                                        >
+                                                            {descargandoPdfId === sesion.id ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-300" />
+                                                            ) : (
+                                                                <FileText className="w-3.5 h-3.5 text-brand-400" />
+                                                            )}
+                                                            <span>{descargandoPdfId === sesion.id ? 'PDF...' : 'Lista (PDF)'}</span>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -1140,13 +1227,29 @@ export default function AdminSesiones({ onLogout }) {
                                         />
                                     </div>
 
-                                    <button
-                                        onClick={exportarCSVConsolidado}
-                                        className="liquid-btn-primary text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition inline-flex items-center gap-1.5"
-                                    >
-                                        <Download className="w-3.5 h-3.5" />
-                                        <span>Exportar Matriz Consolidada (CSV)</span>
-                                    </button>
+                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                        <button
+                                            onClick={() => handleDescargarExcel(capacitacionSeleccionada.id, capacitacionSeleccionada.titulo)}
+                                            disabled={descargandoExcel}
+                                            className="liquid-btn-primary disabled:opacity-50 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-2 shadow-lg shadow-brand-500/20"
+                                            title="Descargar matriz en Excel (.xlsx)"
+                                        >
+                                            {descargandoExcel ? (
+                                                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                            ) : (
+                                                <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
+                                            )}
+                                            <span>{descargandoExcel ? 'Generando Excel...' : 'Descargar Consolidado (Excel)'}</span>
+                                        </button>
+
+                                        <button
+                                            onClick={exportarCSVConsolidado}
+                                            className="liquid-glass-pill hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-1.5"
+                                        >
+                                            <Download className="w-3.5 h-3.5" />
+                                            <span>Exportar CSV</span>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {reporte && (

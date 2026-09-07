@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Trash2, Users, QrCode, ChevronRight } from 'lucide-react';
+import { Layers, Trash2, Users, QrCode, ChevronRight, FileSpreadsheet } from 'lucide-react';
 
 /**
  * TarjetaCapacitacion (Fila Horizontal Fluida)
@@ -16,7 +16,8 @@ export default function TarjetaCapacitacion({
     onSelect,
     onEliminar,
     onProyectarQR,
-    onToggle
+    onToggle,
+    onDescargarExcel
 }) {
     if (!cap) return null;
 
@@ -109,6 +110,19 @@ export default function TarjetaCapacitacion({
                         <QrCode className="w-3.5 h-3.5 text-cyan-400" />
                         <span className="hidden sm:inline">QR</span>
                     </button>
+
+                    {/* Botón Descargar Excel Rápido */}
+                    {onDescargarExcel && (
+                        <button
+                            type="button"
+                            onClick={() => onDescargarExcel(cap.id, cap.titulo)}
+                            className="hover:bg-emerald-950/40 text-emerald-300 hover:text-emerald-200 border border-emerald-700/40 rounded-lg px-3 py-2 text-xs font-medium flex items-center gap-1.5 transition-all min-h-[40px]"
+                            title="Descargar Reporte Consolidado en Excel (.xlsx)"
+                        >
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="hidden lg:inline">Excel</span>
+                        </button>
+                    )}
 
                     {/* Botón Administrar Sesiones */}
                     <button
