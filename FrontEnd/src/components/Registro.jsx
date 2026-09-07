@@ -27,6 +27,40 @@ const formatearHoraSegura = (fechaStr) => {
     }
 };
 
+// Diccionario de dominios comunes para detección de errores tipográficos (anti-typo)
+const SUGERENCIAS_DOMINIOS = {
+    'gmial.com': 'gmail.com',
+    'gmaill.com': 'gmail.com',
+    'gamil.com': 'gmail.com',
+    'gmai.com': 'gmail.com',
+    'hotmial.com': 'hotmail.com',
+    'hotmaill.com': 'hotmail.com',
+    'hotmil.com': 'hotmail.com',
+    'outlok.com': 'outlook.com',
+    'outllok.com': 'outlook.com',
+    'yaho.com': 'yahoo.com',
+    'yahooo.com': 'yahoo.com'
+};
+
+const detectarSugerenciaDominio = (emailStr) => {
+    if (!emailStr || !emailStr.includes('@')) return null;
+    const partes = emailStr.trim().split('@');
+    if (partes.length !== 2) return null;
+    const dominio = partes[1].toLowerCase();
+    const sugerido = SUGERENCIAS_DOMINIOS[dominio];
+    if (sugerido) {
+        return `${partes[0]}@${sugerido}`;
+    }
+    return null;
+};
+
+// Sanitización de texto en cliente
+const sanitizarTexto = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    return str.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
+};
+
+
 /**
  * Componente Registro: Permite a los participantes registrar su asistencia
  * Bloquea registros duplicados por Nombre o Correo en una misma sesión.
@@ -62,8 +96,27 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     const [error, setError] = useState(null);
     const [registroExitoso, setRegistroExitoso] = useState(null);
 
+    // Control de validaciones y campos tocados
+    const [tocado, setTocado] = useState({ nombre: false, empresa: false, correo: false });
+    const [hpVerificacion, setHpVerificacion] = useState(''); // Campo Honeypot invisible contra bots
+
     // Asistencias ya registradas localmente en este dispositivo
     const [asistenciasPrevias, setAsistenciasPrevias] = useState({});
+
+    // Validaciones computadas en tiempo real
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const nombreLimpio = sanitizarTexto(nombre);
+    const empresaLimpia = sanitizarTexto(empresa);
+    const correoLimpio = correo.trim().toLowerCase();
+
+    const esNombreValido = nombreLimpio.length >= 3 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(nombreLimpio);
+    const tieneApellido = nombreLimpio.split(' ').filter(Boolean).length >= 2;
+    const esEmpresaValida = empresaLimpia.length >= 2;
+    const esCorreoValido = emailRegex.test(correoLimpio);
+    const sugerenciaCorreo = detectarSugerenciaDominio(correoLimpio);
+
+    const formularioValido = esNombreValido && esEmpresaValida && esCorreoValido && Boolean(sesionSeleccionadaId);
+
 
     // 1. Extraer token de la URL y cargar datos previos de localStorage
     useEffect(() => {
@@ -134,10 +187,19 @@ export default function Registro({ tokenProp, onIrAdmin }) {
         e.preventDefault();
         hapticTap();
         setError(null);
+        setTocado({ nombre: true, empresa: true, correo: true });
 
-        if (!nombre.trim() || !empresa.trim() || !correo.trim() || !sesionSeleccionadaId) {
+        if (!formularioValido) {
             hapticError();
-            setError('Por favor completa todos los campos requeridos y selecciona tu sesión.');
+            if (!esNombreValido) {
+                setError('Por favor ingresa un nombre válido de al menos 3 letras.');
+            } else if (!esEmpresaValida) {
+                setError('Por favor ingresa el nombre de tu empresa o institución.');
+            } else if (!esCorreoValido) {
+                setError('Por favor ingresa un correo electrónico válido (ejemplo@empresa.com).');
+            } else if (!sesionSeleccionadaId) {
+                setError('Por favor selecciona la sesión a la que estás asistiendo.');
+            }
             return;
         }
 
@@ -157,14 +219,14 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 id: `offline-${Date.now()}`,
                 token: token,
                 sesion_id: sesionSeleccionadaId,
-                nombre_usuario: nombre.trim(),
-                empresa: empresa.trim(),
-                correo: correo.trim().toLowerCase(),
+                nombre_usuario: nombreLimpio,
+                empresa: empresaLimpia,
+                correo: correoLimpio,
                 modalidad: modalidad,
-                nombre_actividad: nombreActividad.trim(),
-                capacitacion_titulo: eventoInfo?.titulo || nombreActividad.trim(),
+                nombre_actividad: sanitizarTexto(nombreActividad),
+                capacitacion_titulo: eventoInfo?.titulo || sanitizarTexto(nombreActividad),
                 nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
-                instructor: instructor.trim() || eventoInfo?.instructor || '',
+                instructor: sanitizarTexto(instructor) || eventoInfo?.instructor || '',
                 fecha_registro: new Date().toISOString(),
                 isOffline: true
             };
@@ -172,11 +234,11 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             guardarOffline({
                 token: token,
                 sesion_id: sesionSeleccionadaId,
-                nombre: nombre.trim(),
-                empresa: empresa.trim(),
-                correo: correo.trim().toLowerCase(),
-                nombre_actividad: nombreActividad.trim(),
-                instructor: instructor.trim(),
+                nombre: nombreLimpio,
+                empresa: empresaLimpia,
+                correo: correoLimpio,
+                nombre_actividad: sanitizarTexto(nombreActividad),
+                instructor: sanitizarTexto(instructor),
                 modalidad: modalidad
             });
 
@@ -185,9 +247,9 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
             try {
                 localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
-                    nombre: nombre.trim(),
-                    empresa: empresa.trim(),
-                    correo: correo.trim().toLowerCase()
+                    nombre: nombreLimpio,
+                    empresa: empresaLimpia,
+                    correo: correoLimpio
                 }));
 
                 const nuevoHistorial = {
@@ -207,12 +269,13 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             const response = await axios.post(`${API_BASE_URL}/registrar-asistencia`, {
                 token: token,
                 sesion_id: sesionSeleccionadaId,
-                nombre: nombre.trim(),
-                empresa: empresa.trim(),
-                correo: correo.trim().toLowerCase(),
-                nombre_actividad: nombreActividad.trim(),
-                instructor: instructor.trim(),
-                modalidad: modalidad
+                nombre: nombreLimpio,
+                empresa: empresaLimpia,
+                correo: correoLimpio,
+                nombre_actividad: sanitizarTexto(nombreActividad),
+                instructor: sanitizarTexto(instructor),
+                modalidad: modalidad,
+                _hp_verificacion: hpVerificacion
             });
 
             const reg = response.data.registro;
@@ -222,9 +285,9 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             // Guardar en localStorage para recordar perfil y bloquear duplicados futuros en este dispositivo
             try {
                 localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
-                    nombre: nombre.trim(),
-                    empresa: empresa.trim(),
-                    correo: correo.trim().toLowerCase()
+                    nombre: nombreLimpio,
+                    empresa: empresaLimpia,
+                    correo: correoLimpio
                 }));
 
                 const nuevoHistorial = {
@@ -239,6 +302,15 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
         } catch (err) {
             console.error('Error al registrar asistencia:', err);
+
+            if (err.response?.status === 422) {
+                hapticError();
+                const campos = err.response?.data?.campos;
+                const primerMensaje = campos ? Object.values(campos)[0] : err.response?.data?.error;
+                setError(primerMensaje || 'Por favor corrige los datos del formulario.');
+                return;
+            }
+
 
             // Resiliencia ante corte de red repentino en auditorio
             if (!err.response || err.code === 'ERR_NETWORK') {
@@ -505,6 +577,20 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                     {(!error || token) && (
                         <form onSubmit={handleSubmit} className="space-y-4">
                             
+                            {/* Trampa Honeypot invisible para humanos contra robots automáticos */}
+                            <div className="opacity-0 absolute -z-50 pointer-events-none h-0 w-0 overflow-hidden" aria-hidden="true">
+                                <label htmlFor="telefono_confirmacion">Confirmación</label>
+                                <input
+                                    id="telefono_confirmacion"
+                                    type="text"
+                                    name="telefono_confirmacion"
+                                    tabIndex="-1"
+                                    autoComplete="off"
+                                    value={hpVerificacion}
+                                    onChange={(e) => setHpVerificacion(e.target.value)}
+                                />
+                            </div>
+
                             {/* 1. Selección de Sesión */}
                             {sesionesActivas.length === 0 ? (
                                 <div className="p-5 bg-amber-950/30 border border-amber-500/30 rounded-2xl text-amber-200 text-xs text-center space-y-2 mb-2 backdrop-blur-lg">
@@ -581,58 +667,148 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                                 </div>
                             )}
 
-                            {/* Nombre Completo */}
+                            {/* Nombre Completo con Validación en Tiempo Real */}
                             <div>
-                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                                    Nombre Completo *
-                                </label>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                                        Nombre Completo *
+                                    </label>
+                                    {esNombreValido && (
+                                        <span className="text-[11px] text-emerald-400 font-medium inline-flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Válido
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="relative">
                                     <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                                     <input
                                         type="text"
                                         required
                                         value={nombre}
-                                        onChange={(e) => setNombre(e.target.value)}
+                                        onBlur={() => setTocado(prev => ({ ...prev, nombre: true }))}
+                                        onChange={(e) => {
+                                            setNombre(e.target.value);
+                                            if (error) setError(null);
+                                        }}
                                         placeholder="Ej: Carlos Martínez Gómez"
-                                        className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px]"
+                                        className={`w-full liquid-glass-input rounded-xl pl-10 pr-10 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px] ${
+                                            tocado.nombre && !esNombreValido ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
+                                        }`}
                                     />
+                                    {tocado.nombre && !esNombreValido && (
+                                        <AlertCircle className="w-4 h-4 text-red-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    )}
                                 </div>
+                                {tocado.nombre && !esNombreValido ? (
+                                    <p className="text-[11px] text-red-400 mt-1 flex items-center gap-1">
+                                        <span>• Ingresa tu nombre (mínimo 3 letras, no solo números).</span>
+                                    </p>
+                                ) : esNombreValido && !tieneApellido && (
+                                    <p className="text-[11px] text-amber-400/90 mt-1 flex items-center gap-1">
+                                        <span>💡 Sugerencia: Recuerda incluir tu apellido para que tu acreditación oficial sea completa.</span>
+                                    </p>
+                                )}
                             </div>
 
-                            {/* Empresa */}
+                            {/* Empresa con Validación en Tiempo Real */}
                             <div>
-                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                                    Empresa o Institución *
-                                </label>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                                        Empresa o Institución *
+                                    </label>
+                                    {esEmpresaValida && (
+                                        <span className="text-[11px] text-emerald-400 font-medium inline-flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Válido
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="relative">
                                     <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                                     <input
                                         type="text"
                                         required
                                         value={empresa}
-                                        onChange={(e) => setEmpresa(e.target.value)}
+                                        onBlur={() => setTocado(prev => ({ ...prev, empresa: true }))}
+                                        onChange={(e) => {
+                                            setEmpresa(e.target.value);
+                                            if (error) setError(null);
+                                        }}
                                         placeholder="Ej: ONE Consulting / Empresa XYZ"
-                                        className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px]"
+                                        className={`w-full liquid-glass-input rounded-xl pl-10 pr-10 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px] ${
+                                            tocado.empresa && !esEmpresaValida ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
+                                        }`}
                                     />
+                                    {tocado.empresa && !esEmpresaValida && (
+                                        <AlertCircle className="w-4 h-4 text-red-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    )}
                                 </div>
+                                {tocado.empresa && !esEmpresaValida && (
+                                    <p className="text-[11px] text-red-400 mt-1 flex items-center gap-1">
+                                        <span>• Ingresa el nombre de la empresa u organización (mínimo 2 caracteres).</span>
+                                    </p>
+                                )}
                             </div>
 
-                            {/* Correo Electrónico */}
+                            {/* Correo Electrónico con Validación en Tiempo Real y Detector Anti-Typo */}
                             <div>
-                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                                    Correo Electrónico *
-                                </label>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                                        Correo Electrónico *
+                                    </label>
+                                    {esCorreoValido && (
+                                        <span className="text-[11px] text-emerald-400 font-medium inline-flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Válido
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="relative">
                                     <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                                     <input
                                         type="email"
                                         required
                                         value={correo}
-                                        onChange={(e) => setCorreo(e.target.value)}
+                                        onBlur={() => setTocado(prev => ({ ...prev, correo: true }))}
+                                        onChange={(e) => {
+                                            setCorreo(e.target.value);
+                                            if (error) setError(null);
+                                        }}
                                         placeholder="Ej: carlos.martinez@empresa.com"
-                                        className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px]"
+                                        className={`w-full liquid-glass-input rounded-xl pl-10 pr-10 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px] ${
+                                            tocado.correo && !esCorreoValido ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
+                                        }`}
                                     />
+                                    {tocado.correo && !esCorreoValido && (
+                                        <AlertCircle className="w-4 h-4 text-red-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    )}
                                 </div>
+
+                                {/* Detector y sugerencia de dominios tipográficos */}
+                                {sugerenciaCorreo && (
+                                    <div className="mt-1.5 p-2 bg-amber-950/40 border border-amber-500/30 rounded-xl flex items-center justify-between gap-2 text-xs text-amber-200 animate-in fade-in duration-200">
+                                        <span className="text-[11px] truncate">
+                                            ¿Quisiste escribir <strong>{sugerenciaCorreo}</strong>?
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                hapticTap();
+                                                setCorreo(sugerenciaCorreo);
+                                            }}
+                                            className="shrink-0 bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 font-semibold px-2.5 py-1 rounded-lg text-[11px] transition-colors"
+                                        >
+                                            Corregir
+                                        </button>
+                                    </div>
+                                )}
+
+                                {tocado.correo && !esCorreoValido && (
+                                    <p className="text-[11px] text-red-400 mt-1 flex items-center gap-1">
+                                        <span>• Ingresa un correo electrónico válido (ejemplo@empresa.com).</span>
+                                    </p>
+                                )}
                             </div>
 
                             {/* Modalidad (Presencial / Virtual) */}
@@ -700,8 +876,8 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
                             <button
                                 type="submit"
-                                disabled={submitting || !token}
-                                className="w-full mt-4 liquid-btn-primary text-white font-semibold py-3.5 px-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs uppercase tracking-wider min-h-[48px]"
+                                disabled={submitting || !token || !formularioValido}
+                                className="w-full mt-4 liquid-btn-primary text-white font-semibold py-3.5 px-4 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs uppercase tracking-wider min-h-[48px] transition-all"
                             >
                                 {submitting ? (
                                     <>
@@ -717,6 +893,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                             </button>
                         </form>
                     )}
+
 
                     <div className="mt-6 pt-5 border-t border-white/[0.08] text-center space-y-2.5">
                         <p className="text-[11px] text-slate-400 flex items-center justify-center gap-1.5">

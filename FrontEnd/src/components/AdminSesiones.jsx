@@ -55,6 +55,9 @@ export default function AdminSesiones({ onLogout }) {
     const [mostrarAgregarSesion, setMostrarAgregarSesion] = useState(false);
     const [nombreSesionExtra, setNombreSesionExtra] = useState('');
 
+    // Modal de confirmación UI para acciones destructivas (eliminar sesión o actividad)
+    const [modalConfirmacion, setModalConfirmacion] = useState(null);
+
     // Modal de QR en pantalla completa
     const [modalQRData, setModalQRData] = useState(null); // { titulo, url }
     const [copiadoExito, setCopiadoExito] = useState(false);
@@ -189,16 +192,35 @@ export default function AdminSesiones({ onLogout }) {
         return cap.qr_url || `${window.location.origin}/?token=${cap.token}`;
     };
 
-    // Crear Nueva Capacitación
+    // Crear Nueva Capacitación con Validaciones Estrictas
     const handleCrearCapacitacion = async (e) => {
         e.preventDefault();
-        if (!nuevoTitulo.trim()) return;
+        const tituloLimpio = nuevoTitulo.trim();
+        
+        if (!tituloLimpio || tituloLimpio.length < 3) {
+            mostrarAlerta('error', 'El nombre de la actividad debe tener al menos 3 caracteres.');
+            hapticError();
+            return;
+        }
+
+        if (tituloLimpio.length > 150) {
+            mostrarAlerta('error', 'El nombre de la actividad no puede exceder los 150 caracteres.');
+            hapticError();
+            return;
+        }
+
+        const numSesiones = parseInt(nuevoNumSesiones, 10);
+        if (!numSesiones || numSesiones < 1 || numSesiones > 50) {
+            mostrarAlerta('error', 'La cantidad de sesiones debe ser un número entre 1 y 50.');
+            hapticError();
+            return;
+        }
 
         try {
             setLoading(true);
             const res = await axios.post(`${API_BASE_URL}/capacitaciones`, {
-                titulo: nuevoTitulo.trim(),
-                cantidad_sesiones: nuevoNumSesiones,
+                titulo: tituloLimpio,
+                cantidad_sesiones: numSesiones,
                 descripcion: nuevaDesc.trim()
             });
 
@@ -248,12 +270,8 @@ export default function AdminSesiones({ onLogout }) {
         }
     };
 
-    // Eliminar Sesión
-    const handleEliminarSesion = async (sesionId, nombreSesion) => {
-        if (!window.confirm(`¿Confirmas la eliminación de "${nombreSesion}"? Esta acción no se puede deshacer.`)) {
-            return;
-        }
-
+    // Ejecutar Eliminación de Sesión tras Confirmación en Modal
+    const ejecutarEliminarSesion = async (sesionId, nombreSesion) => {
         try {
             setLoading(true);
             await axios.delete(`${API_BASE_URL}/sesiones/${sesionId}`);
@@ -270,6 +288,19 @@ export default function AdminSesiones({ onLogout }) {
         } finally {
             setLoading(false);
         }
+    };
+
+    // Solicitar confirmación para eliminar sesión
+    const handleEliminarSesion = (sesionId, nombreSesion) => {
+        hapticWarning();
+        setModalConfirmacion({
+            titulo: 'Eliminar Sesión',
+            subtitulo: `"${nombreSesion}"`,
+            mensaje: `¿Estás seguro de que deseas eliminar permanentemente esta sesión?`,
+            advertenciaCritica: 'Se borrarán todos los registros de asistencia vinculados a esta sesión y la acción no se puede deshacer.',
+            textoBotonConfirmar: 'Eliminar Sesión',
+            onConfirmar: () => ejecutarEliminarSesion(sesionId, nombreSesion)
+        });
     };
 
     // Alternar Activación de Sesión
@@ -302,21 +333,12 @@ export default function AdminSesiones({ onLogout }) {
         }
     };
 
-    // Eliminar Capacitación Completa (con advertencia reforzada si contiene asistencias)
-    const handleEliminarCapacitacion = async (capId, titulo, totalAsistencias = 0) => {
-        let advertencia = `¿Estás seguro de eliminar la capacitación "${titulo}"? Se eliminarán todas sus sesiones y registros.`;
-        if (totalAsistencias > 0) {
-            advertencia = `⚠️ ADVERTENCIA CRÍTICA:\nEsta actividad cuenta con ${totalAsistencias} asistencias registradas.\n\nAl eliminarla, todos los registros de los participantes se perderán de forma permanente e irreversible.\n\n¿Estás completamente seguro de proceder con la eliminación?`;
-        }
-
-        if (!window.confirm(advertencia)) {
-            return;
-        }
-
+    // Ejecutar Eliminación de Capacitación tras Confirmación en Modal
+    const ejecutarEliminarCapacitacion = async (capId, titulo) => {
         try {
             setLoading(true);
             await axios.delete(`${API_BASE_URL}/capacitaciones/${capId}`);
-            mostrarAlerta('exito', `Capacitación "${titulo}" eliminada.`);
+            mostrarAlerta('exito', `Capacitación "${titulo}" eliminada con éxito.`);
             if (capacitacionSeleccionada?.id === capId) {
                 setCapacitacionSeleccionada(null);
             }
@@ -327,6 +349,21 @@ export default function AdminSesiones({ onLogout }) {
         } finally {
             setLoading(false);
         }
+    };
+
+    // Solicitar confirmación para eliminar capacitación
+    const handleEliminarCapacitacion = (capId, titulo, totalAsistencias = 0) => {
+        hapticWarning();
+        setModalConfirmacion({
+            titulo: 'Eliminar Capacitación Completa',
+            subtitulo: `"${titulo}"`,
+            mensaje: `¿Estás seguro de que deseas eliminar permanentemente esta actividad?`,
+            advertenciaCritica: totalAsistencias > 0
+                ? `⚠️ ADVERTENCIA CRÍTICA: Esta actividad contiene ${totalAsistencias} asistencias registradas. Al eliminarla, todos los registros de los participantes se perderán de forma permanente e irreversible.`
+                : 'Se eliminarán todas sus sesiones asociadas y el código QR quedará inhabilitado de inmediato.',
+            textoBotonConfirmar: 'Eliminar Todo el Programa',
+            onConfirmar: () => ejecutarEliminarCapacitacion(capId, titulo)
+        });
     };
 
     const copiarEnlace = async (url) => {
@@ -1220,7 +1257,7 @@ export default function AdminSesiones({ onLogout }) {
                                         <input
                                             type="number"
                                             min="1"
-                                            max="30"
+                                            max="50"
                                             required
                                             value={nuevoNumSesiones}
                                             onChange={(e) => setNuevoNumSesiones(parseInt(e.target.value, 10) || 1)}
@@ -1263,6 +1300,66 @@ export default function AdminSesiones({ onLogout }) {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* MODAL DE CONFIRMACIÓN DESTRUIDA ELEGANTE (VISIONOS / APPLE LIQUID GLASS) */}
+                {modalConfirmacion && (
+                    <div className="fixed inset-0 bg-[#050811]/90 backdrop-blur-xl flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+                        <div className="liquid-glass-panel border-red-500/30 rounded-3xl p-6 sm:p-8 max-w-md w-full relative shadow-2xl animate-in zoom-in-95 duration-200 text-left">
+                            <div className="flex items-center gap-3.5 mb-4">
+                                <div className="w-11 h-11 rounded-2xl bg-red-950/60 border border-red-500/40 flex items-center justify-center shrink-0">
+                                    <AlertCircle className="w-6 h-6 text-red-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-white font-display">
+                                        {modalConfirmacion.titulo}
+                                    </h3>
+                                    {modalConfirmacion.subtitulo && (
+                                        <p className="text-xs text-brand-300 font-medium truncate max-w-[260px]">
+                                            {modalConfirmacion.subtitulo}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <p className="text-xs text-slate-300 mb-4 leading-relaxed">
+                                {modalConfirmacion.mensaje}
+                            </p>
+
+                            {modalConfirmacion.advertenciaCritica && (
+                                <div className="p-3 bg-red-950/40 border border-red-500/30 rounded-2xl mb-6 flex items-start gap-2.5 text-[11px] text-red-200">
+                                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                                    <p className="leading-relaxed">
+                                        {modalConfirmacion.advertenciaCritica}
+                                    </p>
+                                </div>
+                            )}
+
+                            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 pt-2 border-t border-white/[0.08]">
+                                <button
+                                    type="button"
+                                    onClick={() => setModalConfirmacion(null)}
+                                    disabled={loading}
+                                    className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors min-h-[44px] flex items-center justify-center rounded-xl hover:bg-white/5"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={async () => {
+                                        const fn = modalConfirmacion.onConfirmar;
+                                        setModalConfirmacion(null);
+                                        if (fn) await fn();
+                                    }}
+                                    className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg shadow-red-600/30 min-h-[44px] flex items-center justify-center gap-2"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                    <span>{modalConfirmacion.textoBotonConfirmar || 'Sí, Eliminar'}</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}

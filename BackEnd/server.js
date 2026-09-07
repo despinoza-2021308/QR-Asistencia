@@ -148,13 +148,27 @@ app.use('/api', apiLimiter);
 // --------------------------------------------------------------------
 
 /**
- * Limpia y sanitiza cadenas de texto para evitar caracteres de control no imprimibles y limitar longitud
+ * Limpia y sanitiza cadenas de texto para evitar caracteres de control no imprimibles,
+ * inyecciones de código HTML/XSS y espacios múltiples innecesarios.
  */
 function cleanString(str, maxLength = 255) {
     if (typeof str !== 'string') return '';
-    // Eliminar caracteres de control excepto saltos de línea estándar (\n, \r)
-    const sanitized = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').trim();
+    // 1. Eliminar etiquetas HTML
+    let sanitized = str.replace(/<[^>]*>?/gm, '');
+    // 2. Eliminar caracteres de control no imprimibles excepto saltos de línea estándar (\n, \r)
+    sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    // 3. Colapsar espacios múltiples en un solo espacio y hacer trim
+    sanitized = sanitized.replace(/\s+/g, ' ').trim();
     return sanitized.substring(0, maxLength);
+}
+
+/**
+ * Valida si un valor es un número entero positivo válido (> 0)
+ */
+function isValidInteger(val) {
+    if (val === undefined || val === null || val === '') return false;
+    const num = Number(val);
+    return Number.isInteger(num) && num > 0;
 }
 
 /**
@@ -260,6 +274,8 @@ pool.connect(async (err, client, release) => {
         try {
             // Asegurar columna activa en capacitaciones para control de ciclo de vida
             await client.query('ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS activa BOOLEAN DEFAULT TRUE;');
+            // Asegurar índice único por sesión y correo normalizado para evitar duplicados por condiciones de carrera
+            await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_asistencia_unica_sesion_correo ON asistencias (sesion_id, LOWER(TRIM(correo_usuario)));');
         } catch (schemaErr) {
             console.warn('Aviso sobre esquema en PostgreSQL:', schemaErr.message);
         } finally {
@@ -460,6 +476,9 @@ app.post('/api/capacitaciones', requireAdminAuth, async (req, res) => {
  */
 app.put('/api/capacitaciones/:id/toggle', requireAdminAuth, async (req, res) => {
     const { id } = req.params;
+    if (!isValidInteger(id)) {
+        return res.status(400).json({ error: 'El ID de la capacitación debe ser un número entero válido.' });
+    }
     try {
         const result = await pool.query(
             'UPDATE capacitaciones SET activa = NOT COALESCE(activa, TRUE) WHERE id = $1 RETURNING *',
@@ -481,6 +500,9 @@ app.put('/api/capacitaciones/:id/toggle', requireAdminAuth, async (req, res) => 
  */
 app.get('/api/sesiones/capacitacion/:capacitacionId', requireAdminAuth, async (req, res) => {
     const { capacitacionId } = req.params;
+    if (!isValidInteger(capacitacionId)) {
+        return res.status(400).json({ error: 'El ID de la capacitación debe ser un número entero válido.' });
+    }
 
     try {
         const query = `
@@ -513,6 +535,9 @@ app.get('/api/sesiones/capacitacion/:capacitacionId', requireAdminAuth, async (r
  */
 app.get('/api/sesiones/:id/asistencias', requireAdminAuth, async (req, res) => {
     const { id } = req.params;
+    if (!isValidInteger(id)) {
+        return res.status(400).json({ error: 'El ID de la sesión debe ser un número entero válido.' });
+    }
 
     try {
         // 1. Obtener datos de la sesión
@@ -556,6 +581,9 @@ app.get('/api/sesiones/:id/asistencias', requireAdminAuth, async (req, res) => {
  */
 app.post('/api/capacitaciones/:id/sesiones', requireAdminAuth, async (req, res) => {
     const { id } = req.params;
+    if (!isValidInteger(id)) {
+        return res.status(400).json({ error: 'El ID de la capacitación debe ser un número entero válido.' });
+    }
     const { nombre_sesion, fecha } = req.body;
 
     try {
@@ -587,6 +615,9 @@ app.post('/api/capacitaciones/:id/sesiones', requireAdminAuth, async (req, res) 
  */
 app.delete('/api/sesiones/:id', requireAdminAuth, async (req, res) => {
     const { id } = req.params;
+    if (!isValidInteger(id)) {
+        return res.status(400).json({ error: 'El ID de la sesión debe ser un número entero válido.' });
+    }
     try {
         const result = await pool.query('DELETE FROM sesiones WHERE id = $1 RETURNING id, nombre_sesion, capacitacion_id', [id]);
         if (result.rows.length === 0) {
@@ -605,6 +636,9 @@ app.delete('/api/sesiones/:id', requireAdminAuth, async (req, res) => {
  */
 app.put('/api/sesiones/:id/toggle', requireAdminAuth, async (req, res) => {
     const { id } = req.params;
+    if (!isValidInteger(id)) {
+        return res.status(400).json({ error: 'El ID de la sesión debe ser un número entero válido.' });
+    }
     try {
         const result = await pool.query(
             'UPDATE sesiones SET activa = NOT activa WHERE id = $1 RETURNING *',
@@ -626,6 +660,9 @@ app.put('/api/sesiones/:id/toggle', requireAdminAuth, async (req, res) => {
  */
 app.delete('/api/capacitaciones/:id', requireAdminAuth, async (req, res) => {
     const { id } = req.params;
+    if (!isValidInteger(id)) {
+        return res.status(400).json({ error: 'El ID de la capacitación debe ser un número entero válido.' });
+    }
     try {
         const result = await pool.query('DELETE FROM capacitaciones WHERE id = $1 RETURNING id, titulo', [id]);
         if (result.rows.length === 0) {
@@ -706,7 +743,21 @@ app.get(['/api/evento-info/:token', '/api/sesion-info/:token'], async (req, res)
  * @body    { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad }
  */
 app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
-    const { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad } = req.body;
+    const { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad, _hp_verificacion } = req.body;
+
+    // 0. Trampa Honeypot contra Bots y Scripts de Scraping/Spam
+    if (_hp_verificacion && typeof _hp_verificacion === 'string' && _hp_verificacion.trim() !== '') {
+        console.warn('🤖 Intento de bot detectado y neutralizado mediante trampa Honeypot.');
+        return res.status(200).json({
+            message: '¡Asistencia registrada con éxito!',
+            registro: {
+                id: 0,
+                nombre_usuario: 'Participante',
+                nombre_sesion: 'Sesión',
+                capacitacion_titulo: 'Capacitación'
+            }
+        });
+    }
 
     // 1. Validaciones y sanitización con longitudes máximas
     const tokenLimpio = cleanString(token, 64);
@@ -717,25 +768,38 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
     const instructorLimpio = instructor ? cleanString(instructor, 120) : null;
     const actividadLimpia = nombre_actividad ? cleanString(nombre_actividad, 200) : null;
 
+    const errores = {};
+
     if (!tokenLimpio) {
-        return res.status(400).json({ error: 'El código QR o token de la actividad es obligatorio para registrar asistencia.' });
+        errores.token = 'El código QR o token de la actividad es obligatorio.';
     }
-    if (!nombreLimpio) {
-        return res.status(400).json({ error: 'Tu nombre completo es obligatorio.' });
+
+    if (!isValidInteger(sesion_id)) {
+        errores.sesion_id = 'Debes seleccionar una sesión válida.';
     }
-    if (!empresaLimpia) {
-        return res.status(400).json({ error: 'El nombre de la empresa es obligatorio.' });
+
+    if (!nombreLimpio || nombreLimpio.length < 3) {
+        errores.nombre = 'Tu nombre completo debe tener al menos 3 caracteres.';
+    } else if (!/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(nombreLimpio)) {
+        errores.nombre = 'El nombre debe contener letras válidas (no solo números o símbolos).';
     }
-    if (!correoLimpio) {
-        return res.status(400).json({ error: 'El correo electrónico es obligatorio.' });
-    }
-    if (!sesion_id) {
-        return res.status(400).json({ error: 'Debes seleccionar la sesión a la que estás asistiendo.' });
+
+    if (!empresaLimpia || empresaLimpia.length < 2) {
+        errores.empresa = 'El nombre de la empresa u organización debe tener al menos 2 caracteres.';
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(correoLimpio)) {
-        return res.status(400).json({ error: 'El formato de correo electrónico es inválido.' });
+    if (!correoLimpio) {
+        errores.correo = 'El correo electrónico es obligatorio.';
+    } else if (!emailRegex.test(correoLimpio)) {
+        errores.correo = 'El formato de correo electrónico no es válido.';
+    }
+
+    if (Object.keys(errores).length > 0) {
+        return res.status(422).json({
+            error: 'Por favor corrige los datos del formulario.',
+            campos: errores
+        });
     }
 
     try {
@@ -840,6 +904,9 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
  */
 app.get('/api/reporte/capacitacion/:capacitacionId', requireAdminAuth, async (req, res) => {
     const { capacitacionId } = req.params;
+    if (!isValidInteger(capacitacionId)) {
+        return res.status(400).json({ error: 'El ID de la capacitación debe ser un número entero válido.' });
+    }
 
     try {
         const capInfoQuery = `

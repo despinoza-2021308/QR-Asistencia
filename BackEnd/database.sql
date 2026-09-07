@@ -48,3 +48,6 @@ CREATE INDEX IF NOT EXISTS idx_asistencias_sesion ON asistencias(sesion_id);
 CREATE INDEX IF NOT EXISTS idx_asistencias_correo ON asistencias(correo_usuario);
 CREATE INDEX IF NOT EXISTS idx_asistencias_empresa ON asistencias(empresa);
 CREATE INDEX IF NOT EXISTS idx_asistencias_modalidad ON asistencias(modalidad);
+-- Restricción e índice único estricto contra duplicados por concurrencia
+CREATE UNIQUE INDEX IF NOT EXISTS idx_asistencia_unica_sesion_correo ON asistencias (sesion_id, LOWER(TRIM(correo_usuario)));
+

@@ -28,8 +28,10 @@ async function migrate() {
 
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_capacitaciones_token ON capacitaciones(token);`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_asistencias_empresa ON asistencias(empresa);`);
+        await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_asistencia_unica_sesion_correo ON asistencias (sesion_id, LOWER(TRIM(correo_usuario)));`);
 
         console.log('✅ Migración completada con éxito!');
+
         process.exit(0);
     } catch (err) {
         console.error('❌ Error en migración:', err);
