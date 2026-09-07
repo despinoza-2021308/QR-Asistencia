@@ -9,6 +9,16 @@
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 
+// Precarga estática para garantizar que el empaquetador de Vercel (@vercel/nft) incluya las fuentes estándar
+try {
+    require('pdfkit/standard-fonts/Helvetica');
+    require('pdfkit/standard-fonts/HelveticaBold');
+    require('pdfkit/standard-fonts/HelveticaOblique');
+    require('pdfkit/standard-fonts/HelveticaBoldOblique');
+} catch (fontErr) {
+    console.warn('Nota: precarga de fuentes estándar de PDFKit:', fontErr.message);
+}
+
 /**
  * Helper para formatear fechas de manera segura y legible en español
  */

@@ -1041,7 +1041,10 @@ app.get('/api/reportes/consolidado/:capacitacionId', requireAdminAuth, async (re
         if (error.message === 'Capacitación no encontrada') {
             return res.status(404).json({ error: 'Capacitación no encontrada.' });
         }
-        return res.status(500).json({ error: 'Error interno al generar el reporte en Excel.' });
+        return res.status(500).json({ 
+            error: 'Error interno al generar el reporte en Excel.',
+            detalle: error.message || String(error)
+        });
     }
 });
 
@@ -1076,7 +1079,10 @@ app.get('/api/reportes/sesion/:sessionId', requireAdminAuth, async (req, res) =>
         if (error.message === 'Sesión no encontrada') {
             return res.status(404).json({ error: 'Sesión no encontrada.' });
         }
-        return res.status(500).json({ error: 'Error interno al generar el reporte en PDF.' });
+        return res.status(500).json({ 
+            error: 'Error interno al generar el reporte en PDF.',
+            detalle: error.message || String(error)
+        });
     }
 });
 

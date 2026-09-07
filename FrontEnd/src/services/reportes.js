@@ -40,12 +40,19 @@ async function extraerMensajeErrorBlob(error, mensajePorDefecto) {
         try {
             const texto = await error.response.data.text();
             const json = JSON.parse(texto);
-            if (json && json.error) return json.error;
+            if (json) {
+                if (json.detalle) return `${json.error || mensajePorDefecto} (${json.detalle})`;
+                if (json.error) return json.error;
+            }
         } catch {
             // No era JSON, usar default
         }
     }
-    return error.response?.data?.error || error.message || mensajePorDefecto;
+    const data = error.response?.data;
+    if (data?.detalle) {
+        return `${data.error || mensajePorDefecto} (${data.detalle})`;
+    }
+    return data?.error || error.message || mensajePorDefecto;
 }
 
 /**
