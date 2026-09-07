@@ -5,6 +5,9 @@
  * ====================================================================
  */
 
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
@@ -245,10 +248,12 @@ function requireAdminAuth(req, res, next) {
 // --------------------------------------------------------------------
 // 2. Configuración del Pool de Conexión a PostgreSQL (Local o Supabase)
 // --------------------------------------------------------------------
+const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+
 const pool = new Pool(
-    process.env.DATABASE_URL
+    DATABASE_URL
         ? {
-            connectionString: process.env.DATABASE_URL,
+            connectionString: DATABASE_URL,
             ssl: { rejectUnauthorized: false },
             max: 10,
             idleTimeoutMillis: 30000,
@@ -270,8 +275,11 @@ const pool = new Pool(
 pool.connect(async (err, client, release) => {
     if (err) {
         console.error('❌ Error crítico al conectar con PostgreSQL:', err.message);
+        if (!DATABASE_URL) {
+            console.error('💡 AYUDA: No se detectó DATABASE_URL en las variables de entorno. Verifica que el archivo .env exista o configura DATABASE_URL en Vercel/Render.');
+        }
     } else {
-        const dbName = process.env.DATABASE_URL ? 'Supabase Cloud PostgreSQL' : (process.env.DB_NAME || 'postgres');
+        const dbName = DATABASE_URL ? 'Supabase Cloud PostgreSQL' : (process.env.DB_NAME || 'postgres');
         console.log('✅ Conexión exitosa a PostgreSQL en:', dbName);
         try {
             // Asegurar columna activa en capacitaciones para control de ciclo de vida
