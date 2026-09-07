@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "FrontEnd/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.js"
+    },
+    {
+      "src": "/api",
+      "dest": "/api/index.js"
+    },
+    {
+      "src": "/sw.js",
+      "dest": "/FrontEnd/sw.js",
+      "headers": {
+        "cache-control": "public, max-age=0, must-revalidate",
+        "service-worker-allowed": "/"
+      }
+    },
+    {
+      "src": "/manifest.webmanifest",
+      "dest": "/FrontEnd/manifest.webmanifest",
+      "headers": {
+        "content-type": "application/manifest+json"
+      }
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/FrontEnd/assets/$1"
+    },
+    {
+      "src": "/(.*\\.(?:png|jpg|jpeg|gif|svg|ico|css|js|woff|woff2|ttf|webmanifest|json))",
+      "dest": "/FrontEnd/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/FrontEnd/index.html"
+    }
+  ]
+}

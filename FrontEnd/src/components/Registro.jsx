@@ -1,0 +1,742 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { 
+    CheckCircle2, AlertCircle, Building2, Laptop, User, Mail, 
+    Layers, ShieldCheck, Loader2, Calendar, Clock, ArrowRight, 
+    RotateCcw, Sparkles, Check, WifiOff
+} from 'lucide-react';
+import logoOne from '../assets/logo.png';
+import { usePWA } from '../hooks/usePWA';
+import BotonInstalarPWA from './BotonInstalarPWA';
+import BannerOffline from './BannerOffline';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+// Helper compatible 100% con iOS WebKit / Safari para parsear y formatear horas
+const formatearHoraSegura = (fechaStr) => {
+    if (!fechaStr) return '';
+    try {
+        let segura = fechaStr;
+        if (typeof segura === 'string' && segura.includes(' ') && !segura.includes('T')) {
+            segura = segura.replace(' ', 'T');
+        }
+        const d = new Date(segura);
+        return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return '';
+    }
+};
+
+/**
+ * Componente Registro: Permite a los participantes registrar su asistencia
+ * Bloquea registros duplicados por Nombre o Correo en una misma sesión.
+ * Estilo: Apple Liquid Glass (VisionOS / Apple Wallet Pass)
+ * Optimizado para iOS Safari (iPhone / iPad) y Android.
+ */
+export default function Registro({ tokenProp, onIrAdmin }) {
+    const { 
+        isOnline, 
+        guardarOffline, 
+        hapticTap, 
+        hapticSuccess, 
+        hapticWarning, 
+        hapticError 
+    } = usePWA();
+
+    // Token del QR
+    const [token, setToken] = useState('');
+    const [eventoInfo, setEventoInfo] = useState(null);
+    const [loadingInfo, setLoadingInfo] = useState(true);
+    
+    // Formulario del participante
+    const [nombre, setNombre] = useState('');
+    const [empresa, setEmpresa] = useState('');
+    const [correo, setCorreo] = useState('');
+    const [nombreActividad, setNombreActividad] = useState('');
+    const [instructor, setInstructor] = useState('');
+    const [modalidad, setModalidad] = useState('Presencial'); // 'Presencial' | 'Virtual'
+    const [sesionSeleccionadaId, setSesionSeleccionadaId] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    
+    // Feedback y resultados
+    const [error, setError] = useState(null);
+    const [registroExitoso, setRegistroExitoso] = useState(null);
+
+    // Asistencias ya registradas localmente en este dispositivo
+    const [asistenciasPrevias, setAsistenciasPrevias] = useState({});
+
+    // 1. Extraer token de la URL y cargar datos previos de localStorage
+    useEffect(() => {
+        const queryParams = new URLSearchParams(window.location.search);
+        const urlToken = tokenProp || queryParams.get('token');
+
+        // Autocompletar datos del participante si ya se registró antes en este teléfono
+        try {
+            const guardado = localStorage.getItem('asistencia_perfil_usuario');
+            if (guardado) {
+                const perfil = JSON.parse(guardado);
+                if (perfil.nombre) setNombre(perfil.nombre);
+                if (perfil.empresa) setEmpresa(perfil.empresa);
+                if (perfil.correo) setCorreo(perfil.correo);
+            }
+
+            const previas = localStorage.getItem('asistencias_registradas_historial');
+            if (previas) {
+                setAsistenciasPrevias(JSON.parse(previas));
+            }
+        } catch (e) {
+            console.warn('LocalStorage no disponible');
+        }
+
+        if (urlToken) {
+            setToken(urlToken);
+            verificarEvento(urlToken);
+        } else {
+            setLoadingInfo(false);
+            setError('No se proporcionó un código QR de evento. Por favor escanea un código QR válido.');
+        }
+    }, [tokenProp]);
+
+    // 2. Obtener información de la actividad y sus sesiones
+    const verificarEvento = async (tokenVal) => {
+        try {
+            setLoadingInfo(true);
+            setError(null);
+            const response = await axios.get(`${API_BASE_URL}/evento-info/${tokenVal}`);
+            const data = response.data;
+            setEventoInfo(data);
+            
+            if (data.activa === false) {
+                setError(data.mensaje_cierre || 'Esta actividad de capacitación ha sido finalizada y cerrada por el organizador. Ya no se admiten nuevos registros de asistencia.');
+                setLoadingInfo(false);
+                return;
+            }
+
+            if (data.titulo) setNombreActividad(data.titulo);
+            if (data.instructor) setInstructor(data.instructor);
+
+            // Preseleccionar la primera sesión activa no registrada
+            if (data.sesiones && data.sesiones.length > 0) {
+                const primeraActiva = data.sesiones.find(s => s.activa) || data.sesiones[0];
+                setSesionSeleccionadaId(primeraActiva.id);
+            }
+        } catch (err) {
+            console.error('Error al validar evento:', err);
+            const msg = err.response?.data?.error || 'El código QR no es válido o la actividad no está disponible.';
+            setError(msg);
+        } finally {
+            setLoadingInfo(false);
+        }
+    };
+
+    // 3. Enviar registro de asistencia
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        hapticTap();
+        setError(null);
+
+        if (!nombre.trim() || !empresa.trim() || !correo.trim() || !sesionSeleccionadaId) {
+            hapticError();
+            setError('Por favor completa todos los campos requeridos y selecciona tu sesión.');
+            return;
+        }
+
+        // Validar si localmente ya registró esta sesión con este mismo nombre o correo
+        const claveSesion = `${token}_${sesionSeleccionadaId}`;
+        if (asistenciasPrevias[claveSesion]) {
+            hapticWarning();
+            const previa = asistenciasPrevias[claveSesion];
+            setError(`Ya has confirmado tu asistencia en esta sesión como "${previa.nombre_usuario}". No es necesario registrarte dos veces.`);
+            return;
+        }
+
+        // Si el dispositivo está sin señal/offline, guardar en cola local resiliente
+        if (!navigator.onLine) {
+            const sesionObj = eventoInfo?.sesiones?.find(s => s.id === sesionSeleccionadaId);
+            const regOffline = {
+                id: `offline-${Date.now()}`,
+                token: token,
+                sesion_id: sesionSeleccionadaId,
+                nombre_usuario: nombre.trim(),
+                empresa: empresa.trim(),
+                correo: correo.trim().toLowerCase(),
+                modalidad: modalidad,
+                nombre_actividad: nombreActividad.trim(),
+                capacitacion_titulo: eventoInfo?.titulo || nombreActividad.trim(),
+                nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
+                instructor: instructor.trim() || eventoInfo?.instructor || '',
+                fecha_registro: new Date().toISOString(),
+                isOffline: true
+            };
+
+            guardarOffline({
+                token: token,
+                sesion_id: sesionSeleccionadaId,
+                nombre: nombre.trim(),
+                empresa: empresa.trim(),
+                correo: correo.trim().toLowerCase(),
+                nombre_actividad: nombreActividad.trim(),
+                instructor: instructor.trim(),
+                modalidad: modalidad
+            });
+
+            setRegistroExitoso(regOffline);
+            hapticSuccess();
+
+            try {
+                localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
+                    nombre: nombre.trim(),
+                    empresa: empresa.trim(),
+                    correo: correo.trim().toLowerCase()
+                }));
+
+                const nuevoHistorial = {
+                    ...asistenciasPrevias,
+                    [claveSesion]: regOffline
+                };
+                localStorage.setItem('asistencias_registradas_historial', JSON.stringify(nuevoHistorial));
+                setAsistenciasPrevias(nuevoHistorial);
+            } catch (e) {
+                console.warn('No se pudo guardar en LocalStorage');
+            }
+            return;
+        }
+
+        try {
+            setSubmitting(true);
+            const response = await axios.post(`${API_BASE_URL}/registrar-asistencia`, {
+                token: token,
+                sesion_id: sesionSeleccionadaId,
+                nombre: nombre.trim(),
+                empresa: empresa.trim(),
+                correo: correo.trim().toLowerCase(),
+                nombre_actividad: nombreActividad.trim(),
+                instructor: instructor.trim(),
+                modalidad: modalidad
+            });
+
+            const reg = response.data.registro;
+            setRegistroExitoso(reg);
+            hapticSuccess();
+
+            // Guardar en localStorage para recordar perfil y bloquear duplicados futuros en este dispositivo
+            try {
+                localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
+                    nombre: nombre.trim(),
+                    empresa: empresa.trim(),
+                    correo: correo.trim().toLowerCase()
+                }));
+
+                const nuevoHistorial = {
+                    ...asistenciasPrevias,
+                    [claveSesion]: reg
+                };
+                localStorage.setItem('asistencias_registradas_historial', JSON.stringify(nuevoHistorial));
+                setAsistenciasPrevias(nuevoHistorial);
+            } catch (e) {
+                console.warn('No se pudo guardar en LocalStorage');
+            }
+
+        } catch (err) {
+            console.error('Error al registrar asistencia:', err);
+
+            // Resiliencia ante corte de red repentino en auditorio
+            if (!err.response || err.code === 'ERR_NETWORK') {
+                const sesionObj = eventoInfo?.sesiones?.find(s => s.id === sesionSeleccionadaId);
+                const regOffline = {
+                    id: `offline-${Date.now()}`,
+                    token: token,
+                    sesion_id: sesionSeleccionadaId,
+                    nombre_usuario: nombre.trim(),
+                    empresa: empresa.trim(),
+                    correo: correo.trim().toLowerCase(),
+                    modalidad: modalidad,
+                    nombre_actividad: nombreActividad.trim(),
+                    capacitacion_titulo: eventoInfo?.titulo || nombreActividad.trim(),
+                    nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
+                    instructor: instructor.trim() || eventoInfo?.instructor || '',
+                    fecha_registro: new Date().toISOString(),
+                    isOffline: true
+                };
+
+                guardarOffline({
+                    token: token,
+                    sesion_id: sesionSeleccionadaId,
+                    nombre: nombre.trim(),
+                    empresa: empresa.trim(),
+                    correo: correo.trim().toLowerCase(),
+                    nombre_actividad: nombreActividad.trim(),
+                    instructor: instructor.trim(),
+                    modalidad: modalidad
+                });
+
+                setRegistroExitoso(regOffline);
+                hapticSuccess();
+                return;
+            }
+
+            hapticError();
+            if (err.response?.status === 409) {
+                setError(err.response?.data?.error || 'Ya has registrado tu asistencia en esta sesión con este nombre o correo electrónico.');
+                if (err.response?.data?.registro) {
+                    setRegistroExitoso(err.response.data.registro);
+                }
+            } else {
+                setError(err.response?.data?.error || 'Ocurrió un error al procesar tu asistencia. Inténtalo nuevamente.');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    // Reiniciar para registrar otra sesión diferente
+    const handleRegistrarOtra = () => {
+        hapticTap();
+        setRegistroExitoso(null);
+        setError(null);
+    };
+
+    const sesionesActivas = eventoInfo?.sesiones ? eventoInfo.sesiones.filter(s => s.activa) : [];
+    const yaRegistradoEnEsta = Boolean(asistenciasPrevias[`${token}_${sesionSeleccionadaId}`]);
+
+    // ----------------------------------------------------------------
+    // RENDERIZADO: Estado de carga inicial
+    // ----------------------------------------------------------------
+    if (loadingInfo) {
+        return (
+            <div className="min-h-[100dvh] bg-[#050811] flex items-center justify-center p-4 font-sans relative overflow-x-hidden overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+                <div className="absolute top-1/3 left-1/3 w-[350px] h-[350px] bg-brand-500/20 rounded-full blur-[100px] pointer-events-none animate-fluid-orb-1" />
+                <div className="liquid-glass-panel p-8 rounded-3xl text-center max-w-sm w-full relative z-10">
+                    <Loader2 className="w-9 h-9 text-brand-400 animate-spin mx-auto mb-3" />
+                    <p className="text-white font-bold text-sm font-display">Validando código QR...</p>
+                    <p className="text-slate-400 text-xs mt-1">Conectando con ONE Consulting</p>
+                </div>
+            </div>
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // RENDERIZADO: Pantalla de Éxito / Credencial Digital (Apple Wallet)
+    // ----------------------------------------------------------------
+    if (registroExitoso) {
+        return (
+            <div className="min-h-[100dvh] bg-[#050811] flex flex-col items-center justify-start sm:justify-center p-4 sm:p-6 font-sans relative overflow-x-hidden overflow-y-auto pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(2.5rem,calc(1.5rem+env(safe-area-inset-bottom)))]">
+                {/* Orbes Líquidos de Fondo */}
+                <div className="fixed top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-brand-500/20 rounded-full blur-[130px] pointer-events-none animate-fluid-orb-1" />
+                <div className="fixed bottom-10 right-10 w-[400px] h-[400px] bg-emerald-500/15 rounded-full blur-[110px] pointer-events-none animate-fluid-orb-2" />
+
+                <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in-95 duration-500 my-auto">
+                    {/* Botón flotante para instalar PWA */}
+                    <div className="flex justify-end mb-3">
+                        <BotonInstalarPWA />
+                    </div>
+
+                    <div className="liquid-glass-panel rounded-3xl p-6 sm:p-9 text-center relative">
+                        
+                        {/* Reflejo especular superior continuo de cristal */}
+                        <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+
+                        {/* Logo Corporativo en cápsula de cristal */}
+                        <div className="inline-flex items-center justify-center p-2.5 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-white/40 mb-5">
+                            <img src={logoOne} alt="ONE Consulting" className="h-8 w-auto object-contain" />
+                        </div>
+
+                        {/* Icono de Confirmación Líquido */}
+                        <div className={`w-16 h-16 rounded-3xl border flex items-center justify-center mx-auto mb-4 shadow-xl ${
+                            registroExitoso.isOffline
+                                ? 'bg-gradient-to-br from-amber-500/25 to-yellow-600/20 border-amber-400/40 text-amber-300 shadow-amber-500/20'
+                                : 'bg-gradient-to-br from-brand-500/25 to-emerald-600/20 border-brand-400/40 text-brand-300 shadow-brand-500/20'
+                        }`}>
+                            {registroExitoso.isOffline ? (
+                                <WifiOff className="w-8 h-8 stroke-[2.5]" />
+                            ) : (
+                                <Check className="w-8 h-8 stroke-[2.5]" />
+                            )}
+                        </div>
+
+                        {registroExitoso.isOffline ? (
+                            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-amber-300 text-xs font-semibold bg-amber-500/10 border border-amber-400/30 mb-2">
+                                <WifiOff className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Guardado en Celular • Modo Resiliente</span>
+                            </div>
+                        ) : (
+                            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-brand-300 text-xs font-semibold liquid-glass-pill mb-2">
+                                <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
+                                <span>Acreditación Oficial Verificada</span>
+                            </div>
+                        )}
+
+                        <h2 className="text-2xl font-black text-white tracking-tight font-display">
+                            {registroExitoso.isOffline ? '¡Registro Asegurado!' : '¡Asistencia Confirmada!'}
+                        </h2>
+                        <p className="text-slate-400 text-xs mt-1 mb-6">
+                            {registroExitoso.isOffline
+                                ? 'Sin cobertura en este momento. Tu asistencia se guardó localmente y se sincronizará automáticamente apenas recuperes señal.'
+                                : 'Tu participación ha quedado validada en el registro de ONE Consulting.'}
+                        </p>
+
+                        {/* Credencial Digital / Apple Wallet Pass */}
+                        <div className="liquid-glass-input rounded-2xl p-5 text-left space-y-3.5 mb-6 text-xs border-white/[0.1] relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-brand-500/10 rounded-full blur-xl pointer-events-none" />
+                            
+                            <div>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Participante</span>
+                                <p className="text-white font-extrabold text-base mt-0.5 font-display">{registroExitoso.nombre_usuario}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-2.5 border-t border-white/[0.08]">
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Empresa</span>
+                                    <span className="inline-flex items-center gap-1.5 text-slate-200 font-medium mt-1">
+                                        <Building2 className="w-3.5 h-3.5 text-brand-400" />
+                                        {registroExitoso.empresa}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Modalidad</span>
+                                    <span className="inline-flex items-center gap-1.5 text-brand-300 font-semibold mt-1">
+                                        {registroExitoso.modalidad === 'Virtual' ? (
+                                            <>
+                                                <Laptop className="w-3.5 h-3.5" />
+                                                <span>Virtual</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Building2 className="w-3.5 h-3.5" />
+                                                <span>Presencial</span>
+                                            </>
+                                        )}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="pt-2.5 border-t border-white/[0.08]">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Programa</span>
+                                <p className="text-slate-200 font-medium mt-0.5">{registroExitoso.capacitacion_titulo}</p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-2.5 border-t border-white/[0.08]">
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Sesión Registrada</span>
+                                    <p className="text-brand-300 font-semibold mt-0.5">{registroExitoso.nombre_sesion}</p>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Hora de Registro</span>
+                                    <span className="inline-flex items-center gap-1 text-slate-400 mt-0.5 tabular-numbers">
+                                        <Clock className="w-3 h-3 text-slate-400" />
+                                        {formatearHoraSegura(registroExitoso.fecha_registro)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {registroExitoso.instructor && (
+                                <div className="pt-2.5 border-t border-white/[0.08]">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Instructor</span>
+                                    <p className="text-slate-300 mt-0.5">{registroExitoso.instructor}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={handleRegistrarOtra}
+                            className="w-full liquid-glass-pill hover:bg-white/10 text-slate-200 hover:text-white text-xs font-semibold py-3 px-4 rounded-2xl transition-all inline-flex items-center justify-center gap-2"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Registrar otra sesión con este QR</span>
+                        </button>
+                    </div>
+                </div>
+                <BannerOffline />
+            </div>
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // RENDERIZADO: Formulario de Registro Apple Liquid Glass
+    // ----------------------------------------------------------------
+    return (
+        <div className="min-h-[100dvh] bg-[#050811] flex flex-col items-center justify-start sm:justify-center p-4 sm:p-6 font-sans relative overflow-x-hidden overflow-y-auto pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(2.5rem,calc(1.5rem+env(safe-area-inset-bottom)))]">
+            {/* Orbes Líquidos de Fondo */}
+            <div className="fixed top-12 left-1/3 w-[500px] h-[500px] bg-brand-500/20 rounded-full blur-[130px] pointer-events-none animate-fluid-orb-1" />
+            <div className="fixed bottom-12 -right-20 w-[450px] h-[450px] bg-corp-blue/25 rounded-full blur-[120px] pointer-events-none animate-fluid-orb-2" />
+
+            <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in-95 duration-500 my-auto">
+                {/* Botón flotante para instalar PWA */}
+                <div className="flex justify-end mb-3">
+                    <BotonInstalarPWA />
+                </div>
+
+                <div className="liquid-glass-panel rounded-3xl p-6 sm:p-9 relative">
+                    
+                    {/* Reflejo especular superior continuo de cristal */}
+                    <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+
+                    {/* Header Institucional */}
+                    <div className="text-center mb-6">
+                        <div className="inline-flex items-center justify-center p-2.5 bg-white/95 backdrop-blur-md rounded-2xl shadow-lg border border-white/40 mb-4">
+                            <img src={logoOne} alt="ONE Consulting" className="h-9 w-auto object-contain" />
+                        </div>
+
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 liquid-glass-pill rounded-full text-brand-300 text-xs font-semibold mb-2.5">
+                            <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
+                            <span>Registro Oficial de Asistencia</span>
+                        </div>
+                        
+                        <h1 className="text-2xl font-bold text-white tracking-tight font-display">
+                            Control de Asistencia
+                        </h1>
+                        <p className="text-slate-400 text-xs mt-1">
+                            {eventoInfo?.titulo ? eventoInfo.titulo : 'Completa tus datos para confirmar tu participación.'}
+                        </p>
+                    </div>
+
+                    {/* Mensaje de Error / Alerta */}
+                    {error && (
+                        <div className="mb-5 p-3.5 bg-red-950/40 border border-red-500/30 rounded-2xl flex items-start gap-3 text-red-200 text-xs backdrop-blur-xl animate-in fade-in duration-200">
+                            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                            <div className="space-y-0.5">
+                                <p className="font-semibold">Registro no completado</p>
+                                <p className="leading-relaxed">{error}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Formulario */}
+                    {(!error || token) && (
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            
+                            {/* 1. Selección de Sesión */}
+                            {sesionesActivas.length === 0 ? (
+                                <div className="p-5 bg-amber-950/30 border border-amber-500/30 rounded-2xl text-amber-200 text-xs text-center space-y-2 mb-2 backdrop-blur-lg">
+                                    <AlertCircle className="w-5 h-5 text-amber-400 mx-auto" />
+                                    <p className="font-bold text-white">No hay sesiones abiertas en este momento</p>
+                                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                                        El facilitador aún no ha habilitado la sesión activa para esta actividad.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => verificarEvento(token)}
+                                        className="mt-2 bg-amber-600/30 hover:bg-amber-600 text-white font-semibold py-1.5 px-3.5 rounded-xl border border-amber-500/30 text-xs transition-colors inline-flex items-center gap-1.5"
+                                    >
+                                        <RotateCcw className="w-3 h-3" />
+                                        <span>Comprobar nuevamente</span>
+                                    </button>
+                                </div>
+                            ) : sesionesActivas.length === 1 ? (
+                                <div>
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                                        Sesión Activa
+                                    </label>
+                                    <div className="p-3.5 liquid-glass-input rounded-2xl text-brand-300 font-semibold text-xs flex items-center justify-between border-white/[0.08]">
+                                        <span className="flex items-center gap-2">
+                                            <Layers className="w-4 h-4 text-brand-400" />
+                                            {sesionesActivas[0].nombre_sesion}
+                                        </span>
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold liquid-glass-pill text-brand-300">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+                                            Abierta
+                                        </span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                                        Selecciona la Sesión de Hoy *
+                                    </label>
+                                    <select
+                                        value={sesionSeleccionadaId}
+                                        onChange={(e) => {
+                                            setSesionSeleccionadaId(e.target.value);
+                                            setError(null);
+                                        }}
+                                        required
+                                        className="w-full liquid-glass-input text-slate-200 font-medium rounded-2xl px-4 py-3 text-base sm:text-xs focus:outline-none min-h-[44px]"
+                                    >
+                                        {sesionesActivas.map((s) => {
+                                            const yaAsistioLocal = Boolean(asistenciasPrevias[`${token}_${s.id}`]);
+                                            return (
+                                                <option key={s.id} value={s.id} className="bg-[#0a101d] text-white">
+                                                    {s.nombre_sesion} {yaAsistioLocal ? ' (✓ Registrada)' : ' (Abierta)'}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Aviso si ya registró esta sesión */}
+                            {yaRegistradoEnEsta && (
+                                <div className="p-3.5 liquid-glass-pill rounded-2xl text-brand-300 text-xs flex items-center justify-between">
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <Check className="w-4 h-4 text-brand-400" />
+                                        Asistencia ya confirmada en este dispositivo.
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRegistroExitoso(asistenciasPrevias[`${token}_${sesionSeleccionadaId}`])}
+                                        className="font-semibold text-white hover:text-brand-200 underline ml-2 text-[11px]"
+                                    >
+                                        Ver comprobante
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Nombre Completo */}
+                            <div>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                                    Nombre Completo *
+                                </label>
+                                <div className="relative">
+                                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        required
+                                        value={nombre}
+                                        onChange={(e) => setNombre(e.target.value)}
+                                        placeholder="Ej: Carlos Martínez Gómez"
+                                        className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px]"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Empresa */}
+                            <div>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                                    Empresa o Institución *
+                                </label>
+                                <div className="relative">
+                                    <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        required
+                                        value={empresa}
+                                        onChange={(e) => setEmpresa(e.target.value)}
+                                        placeholder="Ej: ONE Consulting / Empresa XYZ"
+                                        className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px]"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Correo Electrónico */}
+                            <div>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                                    Correo Electrónico *
+                                </label>
+                                <div className="relative">
+                                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="email"
+                                        required
+                                        value={correo}
+                                        onChange={(e) => setCorreo(e.target.value)}
+                                        placeholder="Ej: carlos.martinez@empresa.com"
+                                        className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px]"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Modalidad (Presencial / Virtual) */}
+                            <div>
+                                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                                    Modalidad de Participación *
+                                </label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => { hapticTap(); setModalidad('Presencial'); }}
+                                        className={`py-2.5 px-3.5 rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-2 min-h-[44px] ${
+                                            modalidad === 'Presencial'
+                                                ? 'liquid-btn-primary text-white shadow-lg shadow-brand-500/25'
+                                                : 'liquid-glass-pill text-slate-300 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        <Building2 className="w-4 h-4" />
+                                        <span>Presencial</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => { hapticTap(); setModalidad('Virtual'); }}
+                                        className={`py-2.5 px-3.5 rounded-xl text-xs font-semibold transition-all inline-flex items-center justify-center gap-2 min-h-[44px] ${
+                                            modalidad === 'Virtual'
+                                                ? 'liquid-btn-primary text-white shadow-lg shadow-brand-500/25'
+                                                : 'liquid-glass-pill text-slate-300 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        <Laptop className="w-4 h-4" />
+                                        <span>Virtual</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Instructor y Actividad */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                                        Instructor (Opcional)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={instructor}
+                                        onChange={(e) => setInstructor(e.target.value)}
+                                        placeholder="Nombre del instructor"
+                                        className="w-full liquid-glass-input rounded-xl px-3.5 py-2.5 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none min-h-[42px]"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                                        Actividad
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={nombreActividad}
+                                        onChange={(e) => setNombreActividad(e.target.value)}
+                                        placeholder="Nombre del evento"
+                                        className="w-full liquid-glass-input rounded-xl px-3.5 py-2.5 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none min-h-[42px]"
+                                    />
+                                </div>
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={submitting || !token}
+                                className="w-full mt-4 liquid-btn-primary text-white font-semibold py-3.5 px-4 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs uppercase tracking-wider min-h-[48px]"
+                            >
+                                {submitting ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                        <span>Confirmando Asistencia...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>Confirmar mi Asistencia</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    )}
+
+                    <div className="mt-6 pt-5 border-t border-white/[0.08] text-center space-y-2.5">
+                        <p className="text-[11px] text-slate-400 flex items-center justify-center gap-1.5">
+                            <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
+                            <span>ONE Consulting • Control de Acreditación Oficial</span>
+                        </p>
+                        {onIrAdmin && (
+                            <button
+                                type="button"
+                                onClick={() => { hapticTap(); onIrAdmin(); }}
+                                className="text-[11px] text-brand-300 hover:text-brand-200 transition-colors font-medium inline-flex items-center gap-1 min-h-[40px]"
+                            >
+                                <span>¿Eres Administrador? Iniciar Sesión</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+            <BannerOffline />
+        </div>
+    );
+}
