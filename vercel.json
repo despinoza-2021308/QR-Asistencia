@@ -19,11 +19,6 @@
       }
     }
   ],
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "node_modules/pdfkit/**"
-    }
-  },
   "routes": [
     {
       "src": "/api/(.*)",
