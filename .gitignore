@@ -24,6 +24,7 @@ dist/
 build/
 FrontEnd/dist/
 .vercel
+*.timestamp-*.mjs
 
 # Editor directories
 .vscode/
