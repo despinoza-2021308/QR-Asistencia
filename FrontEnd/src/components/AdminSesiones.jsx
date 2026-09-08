@@ -5,7 +5,7 @@ import {
     Plus, LogOut, CheckCircle2, AlertCircle, BookOpen, Layers, Users,
     Search, Trash2, QrCode, Maximize2, ChevronRight, ArrowLeft, Download,
     Building2, Laptop, X, Copy, Check, FileSpreadsheet, FileText, Loader2, ShieldCheck,
-    Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server
+    Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server, RotateCcw
 } from 'lucide-react';
 import logoOne from '../assets/logo.png';
 import PanelKPIs from './PanelKPIs';
@@ -68,6 +68,7 @@ export default function AdminSesiones({ onLogout }) {
     const [mensaje, setMensaje] = useState(null);
     const [filtroTexto, setFiltroTexto] = useState('');
     const [filtroDashboard, setFiltroDashboard] = useState('');
+    const [vistaEstado, setVistaEstado] = useState('activas'); // 'activas' | 'finalizadas' | 'todas'
 
     // Estados de descarga de reportes
     const [descargandoExcel, setDescargandoExcel] = useState(false);
@@ -319,19 +320,51 @@ export default function AdminSesiones({ onLogout }) {
         }
     };
 
-    // Alternar Estado Activa / Cerrada de una Capacitación
-    const handleToggleCapacitacion = async (capId) => {
+    // Alternar Estado Activa / Finalizada de una Capacitación
+    const handleToggleCapacitacion = (capId, titulo = '') => {
+        const cap = capacitaciones.find(c => c.id === capId);
+        const estaActiva = cap ? cap.activa !== false : true;
+        const nombreCap = titulo || cap?.titulo || 'Capacitación';
+
+        if (estaActiva) {
+            hapticWarning();
+            setModalConfirmacion({
+                titulo: 'Finalizar Capacitación',
+                subtitulo: `"${nombreCap}"`,
+                mensaje: '¿Deseas marcar esta capacitación como finalizada?',
+                advertenciaCritica: 'La actividad se trasladará a la vista de "Finalizadas" y su código QR quedará cerrado para nuevos registros de asistencia. Podrás consultar los reportes consolidados o reactivarla en cualquier momento.',
+                textoBotonConfirmar: 'Finalizar Capacitación',
+                onConfirmar: () => ejecutarToggleCapacitacion(capId, nombreCap, false)
+            });
+        } else {
+            ejecutarToggleCapacitacion(capId, nombreCap, true);
+        }
+    };
+
+    const ejecutarToggleCapacitacion = async (capId, nombreCap, reactivando) => {
         try {
             setLoading(true);
             const res = await axios.put(`${API_BASE_URL}/capacitaciones/${capId}/toggle`);
             const estaActiva = res.data.activa;
-            mostrarAlerta('exito', `Capacitación ${estaActiva ? 'reactivada (admitiendo registros)' : 'finalizada y cerrada (código QR bloqueado)'}.`);
+
+            // Actualización local inmediata para feedback reactivo instantáneo
+            setCapacitaciones(prev => prev.map(c => c.id === capId ? { ...c, activa: estaActiva } : c));
+
             if (capacitacionSeleccionada?.id === capId) {
                 setCapacitacionSeleccionada(prev => ({ ...prev, activa: estaActiva }));
             }
-            cargarCapacitaciones(capId);
+
+            hapticSuccess();
+            if (estaActiva) {
+                mostrarAlerta('exito', `Capacitación "${nombreCap}" reactivada con éxito. Ya está disponible en la vista de "Activas".`);
+            } else {
+                mostrarAlerta('exito', `Capacitación "${nombreCap}" finalizada con éxito. Se ha trasladado a la vista de "Finalizadas".`);
+            }
+
+            cargarCapacitaciones();
         } catch (err) {
             console.error('Error al cambiar estado de capacitación:', err);
+            hapticError();
             mostrarAlerta('error', 'Error al actualizar el estado de la actividad.');
         } finally {
             setLoading(false);
@@ -580,10 +613,20 @@ export default function AdminSesiones({ onLogout }) {
         }
     };
 
-    // Filtrar lista del dashboard
-    const capacitacionesFiltradas = capacitaciones.filter(c =>
+    // Filtro por Estado (Activas / Finalizadas / Todas) y Texto de Búsqueda
+    const capacitacionesActivas = capacitaciones.filter(c => c.activa !== false);
+    const capacitacionesFinalizadas = capacitaciones.filter(c => c.activa === false);
+
+    const capacitacionesPorVista = capacitaciones.filter(c => {
+        if (vistaEstado === 'activas') return c.activa !== false;
+        if (vistaEstado === 'finalizadas') return c.activa === false;
+        return true;
+    });
+
+    const capacitacionesFiltradas = capacitacionesPorVista.filter(c =>
         c.titulo.toLowerCase().includes(filtroDashboard.toLowerCase()) ||
-        (c.descripcion && c.descripcion.toLowerCase().includes(filtroDashboard.toLowerCase()))
+        (c.descripcion && c.descripcion.toLowerCase().includes(filtroDashboard.toLowerCase())) ||
+        (c.instructor && c.instructor.toLowerCase().includes(filtroDashboard.toLowerCase()))
     );
 
     const totalAsistenciasGlobal = capacitaciones.reduce((acc, c) => acc + (c.total_asistencias || 0), 0);
@@ -691,6 +734,8 @@ export default function AdminSesiones({ onLogout }) {
                         {/* MÉTRICAS GLOBALES APPLE LIQUID GLASS CARDS */}
                         <PanelKPIs
                             totalCapacitaciones={capacitaciones.length}
+                            totalActivas={capacitacionesActivas.length}
+                            totalFinalizadas={capacitacionesFinalizadas.length}
                             totalSesiones={totalSesionesGlobal}
                             totalAsistencias={totalAsistenciasGlobal}
                         />
@@ -700,48 +745,172 @@ export default function AdminSesiones({ onLogout }) {
 
                             {/* COLUMNA PRINCIPAL: LISTADO DE CAPACITACIONES (8 o 9 cols) */}
                             <div className="lg:col-span-8 xl:col-span-9 space-y-4">
-                                {/* Barra de Búsqueda y Título */}
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-white tracking-tight font-display flex items-center gap-2.5">
-                                            <span>Programas de Capacitación</span>
-                                            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-800 text-cyan-300 border border-slate-700/50">
-                                                {capacitacionesFiltradas.length}
-                                            </span>
-                                        </h2>
-                                        <p className="text-xs text-slate-400 mt-0.5">
-                                            Gestión individual de sesiones, emisión de códigos QR y control de asistencia.
-                                        </p>
+                                {/* Barra Superior: Título, Pestañas de Vista y Búsqueda */}
+                                <div className="flex flex-col gap-3.5 pb-2">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <div>
+                                            <h2 className="text-xl font-bold text-white tracking-tight font-display flex items-center gap-2.5">
+                                                <span>
+                                                    {vistaEstado === 'activas' 
+                                                        ? 'Capacitaciones Activas' 
+                                                        : vistaEstado === 'finalizadas' 
+                                                            ? 'Capacitaciones Finalizadas' 
+                                                            : 'Todos los Programas'}
+                                                </span>
+                                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                                                    vistaEstado === 'finalizadas'
+                                                        ? 'bg-amber-950/40 text-amber-300 border-amber-800/40'
+                                                        : 'bg-slate-800 text-cyan-300 border-slate-700/50'
+                                                }`}>
+                                                    {capacitacionesFiltradas.length}
+                                                </span>
+                                            </h2>
+                                            <p className="text-xs text-slate-400 mt-0.5">
+                                                {vistaEstado === 'finalizadas'
+                                                    ? 'Historial de actividades concluidas con código QR cerrado para nuevos registros.'
+                                                    : 'Gestión de sesiones abiertas, emisión de códigos QR y control de asistencia en vivo.'}
+                                            </p>
+                                        </div>
+
+                                        {/* Barra de Búsqueda */}
+                                        <div className="w-full sm:w-72 relative">
+                                            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                            <input
+                                                type="text"
+                                                placeholder="Buscar por título o instructor..."
+                                                value={filtroDashboard}
+                                                onChange={(e) => setFiltroDashboard(e.target.value)}
+                                                className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none transition-all"
+                                            />
+                                        </div>
                                     </div>
 
-                                    <div className="w-full sm:w-80 relative">
-                                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                        <input
-                                            type="text"
-                                            placeholder="Buscar por título o descripción..."
-                                            value={filtroDashboard}
-                                            onChange={(e) => setFiltroDashboard(e.target.value)}
-                                            className="w-full liquid-glass-input rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-400 focus:outline-none transition-all"
-                                        />
+                                    {/* Segmented Control de Vistas: Activas | Finalizadas | Todas */}
+                                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                                        <div className="inline-flex items-center gap-1.5 p-1 bg-slate-900/60 border border-slate-800/80 rounded-2xl backdrop-blur-md">
+                                            <button
+                                                type="button"
+                                                onClick={() => { setVistaEstado('activas'); hapticTap(); }}
+                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                                                    vistaEstado === 'activas'
+                                                        ? 'bg-gradient-to-r from-sky-500/20 to-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                                                }`}
+                                            >
+                                                <Sparkles className={`w-3.5 h-3.5 ${vistaEstado === 'activas' ? 'text-cyan-400' : 'text-slate-400'}`} />
+                                                <span>Activas</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                    vistaEstado === 'activas' ? 'bg-cyan-500/30 text-cyan-200' : 'bg-slate-800 text-slate-400'
+                                                }`}>
+                                                    {capacitacionesActivas.length}
+                                                </span>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => { setVistaEstado('finalizadas'); hapticTap(); }}
+                                                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
+                                                    vistaEstado === 'finalizadas'
+                                                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                                                }`}
+                                            >
+                                                <CheckCircle2 className={`w-3.5 h-3.5 ${vistaEstado === 'finalizadas' ? 'text-amber-400' : 'text-slate-400'}`} />
+                                                <span>Finalizadas</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                    vistaEstado === 'finalizadas' ? 'bg-amber-500/30 text-amber-200' : 'bg-slate-800 text-slate-400'
+                                                }`}>
+                                                    {capacitacionesFinalizadas.length}
+                                                </span>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => { setVistaEstado('todas'); hapticTap(); }}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                                    vistaEstado === 'todas'
+                                                        ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                                                        : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                                                }`}
+                                            >
+                                                <span>Todas</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                    vistaEstado === 'todas' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
+                                                }`}>
+                                                    {capacitaciones.length}
+                                                </span>
+                                            </button>
+                                        </div>
+
+                                        {/* Ayuda contextual sobre la vista */}
+                                        {vistaEstado === 'finalizadas' && capacitacionesFinalizadas.length > 0 && (
+                                            <span className="text-[11px] text-amber-400/90 font-medium hidden sm:inline-flex items-center gap-1.5">
+                                                <span>💡 Puedes reactivar cualquier capacitación con el botón "Reactivar".</span>
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
+                                {/* Banner explicativo en vista de Finalizadas */}
+                                {vistaEstado === 'finalizadas' && (
+                                    <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-800/30 text-amber-200/90 text-xs flex items-center justify-between gap-3 backdrop-blur-md">
+                                        <div className="flex items-center gap-2.5">
+                                            <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                                            <span>
+                                                <strong>Vista de Actividades Concluidas:</strong> Los códigos QR de estas capacitaciones están cerrados para nuevos registros. Puedes consultar sus reportes en Excel, listas en PDF o reactivarlas si requieres abrir una nueva sesión.
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Listado de Capacitaciones en Filas Horizontales */}
                                 {capacitacionesFiltradas.length === 0 ? (
-                                    <div className="rounded-2xl p-16 text-center border border-dashed border-slate-800/60 bg-slate-900/10">
-                                        <BookOpen className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                                        <p className="text-sm text-slate-300 font-semibold mb-1">No se encontraron capacitaciones</p>
-                                        <p className="text-xs text-slate-500 mb-5 max-w-sm mx-auto">
-                                            Crea un nuevo programa definiendo sus sesiones para generar su código QR automático.
-                                        </p>
-                                        <button
-                                            onClick={() => setMostrarCrearModal(true)}
-                                            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold px-4 py-2.5 rounded-lg transition inline-flex items-center gap-2"
-                                        >
-                                            <Plus className="w-4 h-4" />
-                                            <span>Crear Capacitación</span>
-                                        </button>
-                                    </div>
+                                    vistaEstado === 'finalizadas' ? (
+                                        <div className="rounded-2xl p-14 text-center border border-dashed border-slate-800/60 bg-slate-900/10">
+                                            <CheckCircle2 className="w-10 h-10 text-amber-400/50 mx-auto mb-3" />
+                                            <p className="text-sm text-slate-200 font-semibold mb-1">No hay capacitaciones finalizadas</p>
+                                            <p className="text-xs text-slate-400 max-w-md mx-auto mb-4">
+                                                Cuando concluyas un programa de capacitación, presiona el botón <strong className="text-amber-300">"Finalizar"</strong> en su tarjeta para archivarlo en esta vista y mantener despejado tu panel de actividades activas.
+                                            </p>
+                                            <button
+                                                onClick={() => setVistaEstado('activas')}
+                                                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                                            >
+                                                <span>Ver capacitaciones activas</span>
+                                                <ChevronRight className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-2xl p-14 text-center border border-dashed border-slate-800/60 bg-slate-900/10">
+                                            <BookOpen className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                                            <p className="text-sm text-slate-200 font-semibold mb-1">
+                                                {filtroDashboard ? 'No se encontraron resultados para tu búsqueda' : 'No hay capacitaciones activas en este momento'}
+                                            </p>
+                                            <p className="text-xs text-slate-400 mb-5 max-w-sm mx-auto">
+                                                {filtroDashboard 
+                                                    ? 'Prueba con otro término de búsqueda o limpia el filtro.' 
+                                                    : 'Crea un nuevo programa definiendo sus sesiones para generar su código QR automático, o consulta el historial de finalizadas.'}
+                                            </p>
+                                            <div className="flex items-center justify-center gap-3 flex-wrap">
+                                                <button
+                                                    onClick={() => setMostrarCrearModal(true)}
+                                                    className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-2 shadow-lg shadow-cyan-500/20 cursor-pointer"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                    <span>Crear Capacitación</span>
+                                                </button>
+                                                {capacitacionesFinalizadas.length > 0 && (
+                                                    <button
+                                                        onClick={() => setVistaEstado('finalizadas')}
+                                                        className="bg-slate-800/80 hover:bg-slate-800 text-amber-300 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-700 transition inline-flex items-center gap-2 cursor-pointer"
+                                                    >
+                                                        <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
+                                                        <span>Ver Finalizadas ({capacitacionesFinalizadas.length})</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
                                 ) : (
                                     <div className="space-y-3">
                                         {capacitacionesFiltradas.map((cap) => (
@@ -842,14 +1011,24 @@ export default function AdminSesiones({ onLogout }) {
 
                             <div className="flex items-center gap-2.5 flex-wrap">
                                 <button
-                                    onClick={() => handleToggleCapacitacion(capacitacionSeleccionada.id)}
-                                    className={`border text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-1.5 ${capacitacionSeleccionada.activa !== false
+                                    onClick={() => handleToggleCapacitacion(capacitacionSeleccionada.id, capacitacionSeleccionada.titulo)}
+                                    className={`border text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-1.5 cursor-pointer shadow-sm ${capacitacionSeleccionada.activa !== false
                                             ? 'border-amber-500/40 bg-amber-950/30 text-amber-300 hover:bg-amber-900/40'
                                             : 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/40'
                                         }`}
-                                    title={capacitacionSeleccionada.activa !== false ? 'Cerrar evento y bloquear nuevos registros por QR' : 'Reactivar evento para admitir registros'}
+                                    title={capacitacionSeleccionada.activa !== false ? 'Finalizar capacitación y trasladar a la vista de Finalizadas' : 'Reactivar capacitación y devolver a la vista de Activas'}
                                 >
-                                    <span>{capacitacionSeleccionada.activa !== false ? 'Cerrar Evento' : 'Reactivar Evento'}</span>
+                                    {capacitacionSeleccionada.activa !== false ? (
+                                        <>
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
+                                            <span>Finalizar Capacitación</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                                            <span>Reactivar Capacitación</span>
+                                        </>
+                                    )}
                                 </button>
 
                                 <button
@@ -887,6 +1066,26 @@ export default function AdminSesiones({ onLogout }) {
                                 </button>
                             </div>
                         </div>
+
+                        {/* Banner si la capacitación está finalizada */}
+                        {capacitacionSeleccionada.activa === false && (
+                            <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg backdrop-blur-md">
+                                <div className="flex items-center gap-2.5">
+                                    <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                                    <span>
+                                        Esta capacitación se encuentra <strong>FINALIZADA</strong>. El código QR está cerrado para nuevos registros. Puedes consultar el detalle de sesiones, descargar el consolidado en Excel o reactivarla en cualquier momento.
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleCapacitacion(capacitacionSeleccionada.id, capacitacionSeleccionada.titulo)}
+                                    className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 transition-all self-start sm:self-auto shrink-0 cursor-pointer"
+                                >
+                                    <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>Reactivar Programa</span>
+                                </button>
+                            </div>
+                        )}
 
                         {/* Pestañas de la Capacitación */}
                         <div className="flex border-b border-white/[0.08] overflow-x-auto gap-2">

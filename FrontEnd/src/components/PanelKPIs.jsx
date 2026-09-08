@@ -9,10 +9,12 @@ import { BookOpen, Layers, Users, CheckCircle2 } from 'lucide-react';
  * - Separadas únicamente por líneas divisorias verticales sutiles (border-slate-800/80)
  * - Cero cajas anidadas ni recuadros individuales pesados
  * - Tipografía de alto impacto: text-4xl font-extrabold text-white
- * - Acentos cromáticos controlados (cyan-400 y emerald-400)
+ * - Muestra desglose claro de Activas y Finalizadas
  */
 export default function PanelKPIs({ 
     totalCapacitaciones = 0, 
+    totalActivas = 0,
+    totalFinalizadas = 0,
     totalSesiones = 0, 
     totalAsistencias = 0 
 }) {
@@ -20,17 +22,25 @@ export default function PanelKPIs({
         <section aria-label="Métricas Globales del Sistema" className="w-full py-4">
             <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-800/80">
                 
-                {/* Métrica 1: Capacitaciones */}
+                {/* Métrica 1: Capacitaciones (Activas y Finalizadas) */}
                 <div className="py-4 md:py-1 md:pr-8 flex flex-col justify-between">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-medium uppercase tracking-wider text-slate-400 flex items-center gap-2">
                             <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
                             Programas de Capacitación
                         </span>
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold text-cyan-300 bg-cyan-950/40 border border-cyan-800/40">
-                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                            Activos
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-cyan-300 bg-cyan-950/40 border border-cyan-800/40">
+                                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                {totalActivas} Activas
+                            </span>
+                            {totalFinalizadas > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-amber-300 bg-amber-950/40 border border-amber-800/40">
+                                    <CheckCircle2 className="w-3 h-3 text-amber-400" />
+                                    {totalFinalizadas} Finalizadas
+                                </span>
+                            )}
+                        </div>
                     </div>
                     <div className="flex items-baseline gap-3 mt-1">
                         <span className="text-4xl font-extrabold text-white tracking-tight tabular-numbers font-display">
