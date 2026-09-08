@@ -19,6 +19,20 @@ const pool = new Pool(
         }
 );
 
+function toTitleCase(str) {
+    if (!str || typeof str !== 'string') return '';
+    const particulas = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'da', 'di', 'van', 'von', 'der']);
+    const palabras = str.replace(/[<>]/g, '').trim().toLowerCase().split(/\s+/);
+    return palabras.map((palabra, index) => {
+        if (!palabra) return '';
+        if (index > 0 && particulas.has(palabra)) return palabra;
+        if (palabra.includes('-')) {
+            return palabra.split('-').map(part => part ? part.charAt(0).toUpperCase() + part.slice(1) : '').join('-');
+        }
+        return palabra.charAt(0).toUpperCase() + palabra.slice(1);
+    }).join(' ');
+}
+
 async function migrate() {
     const client = await pool.connect();
     try {
@@ -94,7 +108,7 @@ async function migrate() {
 
             for (const asis of asistenciasPendientes.rows) {
                 const correoNorm = (asis.correo_usuario || '').trim().toLowerCase();
-                const nombreNorm = (asis.nombre_usuario || '').trim();
+                const nombreNorm = toTitleCase((asis.nombre_usuario || '').trim());
                 const capId = asis.capacitacion_id;
 
                 if (!correoNorm && !nombreNorm) continue;
@@ -160,6 +174,29 @@ async function migrate() {
         await client.query(`CREATE INDEX IF NOT EXISTS idx_asistencias_participant ON asistencias(participant_id);`);
         await client.query(`CREATE INDEX IF NOT EXISTS idx_asistencias_fecha_hora ON asistencias(fecha_hora_registro);`);
         await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_asistencia_unica_sesion_participante ON asistencias (sesion_id, participant_id);`);
+
+        // 7. Auto-capitalización de nombres históricos (Title Case)
+        console.log('✨ [MIGRACIÓN] Normalizando nombres históricos a formato formal Title Case...');
+        const partRows = await client.query(`SELECT id, nombre FROM participantes;`);
+        let partCount = 0;
+        for (const p of partRows.rows) {
+            const formatted = toTitleCase(p.nombre);
+            if (formatted && formatted !== p.nombre) {
+                await client.query(`UPDATE participantes SET nombre = $1 WHERE id = $2;`, [formatted, p.id]);
+                partCount++;
+            }
+        }
+
+        const asisRows = await client.query(`SELECT id, nombre_usuario FROM asistencias;`);
+        let asisCount = 0;
+        for (const a of asisRows.rows) {
+            const formatted = toTitleCase(a.nombre_usuario);
+            if (formatted && formatted !== a.nombre_usuario) {
+                await client.query(`UPDATE asistencias SET nombre_usuario = $1 WHERE id = $2;`, [formatted, a.id]);
+                asisCount++;
+            }
+        }
+        console.log(`✨ [MIGRACIÓN] Nombres actualizados a Title Case: ${partCount} participantes maestros, ${asisCount} asistencias.`);
 
         await client.query('COMMIT');
         console.log('✅ [MIGRACIÓN] ¡Migración completada con éxito! Modelo Maestro-Detalle listo.');

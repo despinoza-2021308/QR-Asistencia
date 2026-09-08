@@ -168,6 +168,26 @@ function cleanString(str, maxLength = 255) {
 }
 
 /**
+ * Convierte un nombre a formato Title Case (Capitalización formal de Nombres Propios).
+ * Maneja cadenas en minúsculas sostenidas, mayúsculas sostenidas y partículas en español
+ * (de, del, la, las, los, y, e, da, di, van, von, der) para que no se capitalicen indebidamente
+ * a menos que estén al inicio de la frase. Conserva acentos (á, é, í, ó, ú, ñ) y nombres con guión.
+ */
+function toTitleCase(str) {
+    if (typeof str !== 'string' || !str.trim()) return '';
+    const particulas = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'da', 'di', 'van', 'von', 'der']);
+    const palabras = str.replace(/[<>]/g, '').trim().toLowerCase().split(/\s+/);
+    return palabras.map((palabra, index) => {
+        if (!palabra) return '';
+        if (index > 0 && particulas.has(palabra)) return palabra;
+        if (palabra.includes('-')) {
+            return palabra.split('-').map(part => part ? part.charAt(0).toUpperCase() + part.slice(1) : '').join('-');
+        }
+        return palabra.charAt(0).toUpperCase() + palabra.slice(1);
+    }).join(' ');
+}
+
+/**
  * Valida si un valor es un número entero positivo válido (> 0)
  */
 function isValidInteger(val) {
@@ -434,7 +454,7 @@ app.post('/api/capacitaciones', requireAdminAuth, async (req, res) => {
 
     const tituloLimpio = cleanString(titulo, 200);
     const descLimpia = descripcion ? cleanString(descripcion, 1000) : null;
-    const instructorLimpio = instructor ? cleanString(instructor, 120) : null;
+    const instructorLimpio = instructor ? toTitleCase(cleanString(instructor, 120)) : null;
     const duracionLimpia = duracion ? cleanString(duracion, 60) : null;
 
     if (!tituloLimpio) {
@@ -614,7 +634,10 @@ app.get('/api/sesiones/:id/asistencias', requireAdminAuth, async (req, res) => {
         res.status(200).json({
             sesion: sesion,
             total_asistentes: asistenciasRes.rows.length,
-            asistentes: asistenciasRes.rows
+            asistentes: asistenciasRes.rows.map(a => ({
+                ...a,
+                nombre_usuario: toTitleCase(a.nombre_usuario)
+            }))
         });
     } catch (error) {
         console.error('Error al consultar asistentes de la sesión:', error);
@@ -806,14 +829,15 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
         });
     }
 
-    // 1. Validaciones y sanitización con longitudes máximas
+    // 1. Validaciones y sanitización con longitudes máximas y Title Case
     const tokenLimpio = cleanString(token, 64);
-    const nombreLimpio = cleanString(nombre, 120);
+    // Auto-capitalización de nombres (Title Case) para visualización formal en DB, reportes Excel y PDF
+    const nombreLimpio = toTitleCase(cleanString(nombre, 120));
     const empresaLimpia = cleanString(empresa, 120);
     // Normalización de correo en minúsculas y sin espacios
     const correoNormalizado = cleanString(correo, 120).trim().toLowerCase();
     const modalidadLimpia = modalidad && modalidad.trim().toLowerCase() === 'virtual' ? 'Virtual' : 'Presencial';
-    const instructorLimpio = instructor ? cleanString(instructor, 120) : null;
+    const instructorLimpio = instructor ? toTitleCase(cleanString(instructor, 120)) : null;
     const actividadLimpia = nombre_actividad ? cleanString(nombre_actividad, 200) : null;
 
     const errores = {};
@@ -942,13 +966,20 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
                 });
             }
 
-            // Si el perfil maestro no tenía empresa registrada y ahora se provee una válida, actualizar perfil maestro
-            if ((!participanteMaestro.empresa || participanteMaestro.empresa.trim() === '') && empresaLimpia) {
+            // Si el perfil maestro tiene nombre sin formato Title Case o no tenía empresa registrada, actualizar perfil maestro
+            const nombreMaestroFormateado = toTitleCase(participanteMaestro.nombre);
+            const actualizoNombre = nombreMaestroFormateado && nombreMaestroFormateado !== participanteMaestro.nombre;
+            const actualizoEmpresa = (!participanteMaestro.empresa || participanteMaestro.empresa.trim() === '') && empresaLimpia;
+
+            if (actualizoNombre || actualizoEmpresa) {
+                const nombreFinal = actualizoNombre ? nombreMaestroFormateado : participanteMaestro.nombre;
+                const empresaFinal = actualizoEmpresa ? empresaLimpia : participanteMaestro.empresa;
                 await pool.query(
-                    `UPDATE participantes SET empresa = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = $2;`,
-                    [empresaLimpia, participantId]
+                    `UPDATE participantes SET nombre = $1, empresa = $2, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = $3;`,
+                    [nombreFinal, empresaFinal, participantId]
                 );
-                participanteMaestro.empresa = empresaLimpia;
+                participanteMaestro.nombre = nombreFinal;
+                participanteMaestro.empresa = empresaFinal;
             }
         } else {
             // Paso 3.4: Si no existe, crear nuevo registro maestro en la tabla participantes

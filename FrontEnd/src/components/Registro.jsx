@@ -60,6 +60,21 @@ const sanitizarTexto = (str) => {
     return str.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
 };
 
+// Capitalización formal de Nombres Propios (Title Case)
+const toTitleCase = (str) => {
+    if (!str || typeof str !== 'string') return '';
+    const particulas = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'da', 'di', 'van', 'von', 'der']);
+    const palabras = str.replace(/[<>]/g, '').trim().toLowerCase().split(/\s+/);
+    return palabras.map((palabra, index) => {
+        if (!palabra) return '';
+        if (index > 0 && particulas.has(palabra)) return palabra;
+        if (palabra.includes('-')) {
+            return palabra.split('-').map(part => part ? part.charAt(0).toUpperCase() + part.slice(1) : '').join('-');
+        }
+        return palabra.charAt(0).toUpperCase() + palabra.slice(1);
+    }).join(' ');
+};
+
 
 /**
  * Componente Registro: Permite a los participantes registrar su asistencia
@@ -128,7 +143,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             const guardado = localStorage.getItem('asistencia_perfil_usuario');
             if (guardado) {
                 const perfil = JSON.parse(guardado);
-                if (perfil.nombre) setNombre(perfil.nombre);
+                if (perfil.nombre) setNombre(toTitleCase(perfil.nombre));
                 if (perfil.empresa) setEmpresa(perfil.empresa);
                 if (perfil.correo) setCorreo(perfil.correo);
             }
@@ -212,6 +227,9 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             return;
         }
 
+        // Auto-capitalización formal Title Case del nombre
+        const nombreFormateado = toTitleCase(nombreLimpio);
+
         // Si el dispositivo está sin señal/offline, guardar en cola local resiliente
         if (!navigator.onLine) {
             const sesionObj = eventoInfo?.sesiones?.find(s => s.id === sesionSeleccionadaId);
@@ -219,14 +237,14 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 id: `offline-${Date.now()}`,
                 token: token,
                 sesion_id: sesionSeleccionadaId,
-                nombre_usuario: nombreLimpio,
+                nombre_usuario: nombreFormateado,
                 empresa: empresaLimpia,
                 correo: correoLimpio,
                 modalidad: modalidad,
                 nombre_actividad: sanitizarTexto(nombreActividad),
                 capacitacion_titulo: eventoInfo?.titulo || sanitizarTexto(nombreActividad),
                 nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
-                instructor: sanitizarTexto(instructor) || eventoInfo?.instructor || '',
+                instructor: toTitleCase(sanitizarTexto(instructor)) || eventoInfo?.instructor || '',
                 fecha_registro: new Date().toISOString(),
                 isOffline: true
             };
@@ -234,11 +252,11 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             guardarOffline({
                 token: token,
                 sesion_id: sesionSeleccionadaId,
-                nombre: nombreLimpio,
+                nombre: nombreFormateado,
                 empresa: empresaLimpia,
                 correo: correoLimpio,
                 nombre_actividad: sanitizarTexto(nombreActividad),
-                instructor: sanitizarTexto(instructor),
+                instructor: toTitleCase(sanitizarTexto(instructor)),
                 modalidad: modalidad
             });
 
@@ -247,7 +265,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
             try {
                 localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
-                    nombre: nombreLimpio,
+                    nombre: nombreFormateado,
                     empresa: empresaLimpia,
                     correo: correoLimpio
                 }));
@@ -269,11 +287,11 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             const response = await axios.post(`${API_BASE_URL}/registrar-asistencia`, {
                 token: token,
                 sesion_id: sesionSeleccionadaId,
-                nombre: nombreLimpio,
+                nombre: nombreFormateado,
                 empresa: empresaLimpia,
                 correo: correoLimpio,
                 nombre_actividad: sanitizarTexto(nombreActividad),
-                instructor: sanitizarTexto(instructor),
+                instructor: toTitleCase(sanitizarTexto(instructor)),
                 modalidad: modalidad,
                 _hp_verificacion: hpVerificacion
             });
@@ -285,7 +303,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             // Guardar en localStorage para recordar perfil y bloquear duplicados futuros en este dispositivo
             try {
                 localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
-                    nombre: nombreLimpio,
+                    nombre: nombreFormateado,
                     empresa: empresaLimpia,
                     correo: correoLimpio
                 }));
@@ -686,7 +704,12 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                                         type="text"
                                         required
                                         value={nombre}
-                                        onBlur={() => setTocado(prev => ({ ...prev, nombre: true }))}
+                                        onBlur={() => {
+                                            setTocado(prev => ({ ...prev, nombre: true }));
+                                            if (nombre && nombre.trim()) {
+                                                setNombre(toTitleCase(nombre));
+                                            }
+                                        }}
                                         onChange={(e) => {
                                             setNombre(e.target.value);
                                             if (error) setError(null);

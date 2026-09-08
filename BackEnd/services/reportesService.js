@@ -60,6 +60,24 @@ function formatearHora(fechaStr) {
 }
 
 /**
+ * Convierte un nombre a formato Title Case (Capitalización formal de Nombres Propios).
+ * Garantiza que en reportes Excel y PDF los nombres siempre se presenten con la máxima formalidad corporativa.
+ */
+function toTitleCase(str) {
+    if (!str || typeof str !== 'string') return '';
+    const particulas = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'da', 'di', 'van', 'von', 'der']);
+    const palabras = str.replace(/[<>]/g, '').trim().toLowerCase().split(/\s+/);
+    return palabras.map((palabra, index) => {
+        if (!palabra) return '';
+        if (index > 0 && particulas.has(palabra)) return palabra;
+        if (palabra.includes('-')) {
+            return palabra.split('-').map(part => part ? part.charAt(0).toUpperCase() + part.slice(1) : '').join('-');
+        }
+        return palabra.charAt(0).toUpperCase() + palabra.slice(1);
+    }).join(' ');
+}
+
+/**
  * --------------------------------------------------------------------
  * 1. REPORTE CONSOLIDADO TOTAL EN EXCEL (.xlsx)
  * --------------------------------------------------------------------
@@ -128,7 +146,7 @@ async function generarExcelConsolidado(capacitacionId, pool) {
             : 0;
 
         return {
-            nombre_usuario: user.nombre_usuario,
+            nombre_usuario: toTitleCase(user.nombre_usuario),
             empresa: user.empresa || 'No especificada',
             modalidad: user.modalidad || 'Presencial',
             correo_usuario: user.correo_usuario,
@@ -629,7 +647,7 @@ async function generarPdfSesion(sesionId, pool) {
 
                     // Columna Nombre
                     doc.fontSize(8).font('Helvetica-Bold').fillColor(COLOR_NAVY)
-                       .text(a.nombre_usuario || 'Sin nombre', COL_POS.nombre + 5, currentY + 6, { 
+                       .text(toTitleCase(a.nombre_usuario) || 'Sin nombre', COL_POS.nombre + 5, currentY + 6, { 
                            width: COL_WIDTHS.nombre - 10, 
                            ellipsis: true, 
                            align: 'left' 
