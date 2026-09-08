@@ -25,16 +25,15 @@ export default function TarjetaCapacitacion({
 
     return (
         <article className={`group flex flex-col md:flex-row md:items-center justify-between p-5 md:p-6 bg-slate-900/20 hover:bg-slate-900/50 border ${estaActiva ? 'border-slate-800/40 hover:border-slate-700/60' : 'border-amber-900/30 bg-amber-950/10 hover:border-amber-800/40'} rounded-xl transition-all duration-200 gap-4`}>
-            
+
             {/* Información Principal: Título, Sesiones, Estado & Descripción */}
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2.5 mb-1.5 flex-wrap">
                     {/* Badge Estado */}
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        estaActiva 
-                            ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-800/50' 
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${estaActiva
+                            ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-800/50'
                             : 'bg-amber-950/50 text-amber-300 border border-amber-800/50'
-                    }`}>
+                        }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${estaActiva ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
                         <span>{estaActiva ? 'QR Activo' : 'Finalizada (QR Cerrado)'}</span>
                     </span>
@@ -43,15 +42,15 @@ export default function TarjetaCapacitacion({
                         <Layers className="w-3 h-3 text-cyan-400" />
                         <span>{cap.total_sesiones || 1} {cap.total_sesiones === 1 ? 'Sesión' : 'Sesiones'}</span>
                     </span>
-                    
+
                     <span className="text-[11px] text-slate-500 hidden sm:inline">
                         ID #{cap.id}
                     </span>
                 </div>
 
-                <h3 
+                <h3
                     onClick={() => onSelect(cap)}
-                    className="text-base md:text-lg font-bold text-white group-hover:text-cyan-300 transition-colors cursor-pointer truncate" 
+                    className="text-base md:text-lg font-bold text-white group-hover:text-cyan-300 transition-colors cursor-pointer truncate"
                     title={cap.titulo}
                 >
                     {cap.titulo}
@@ -66,7 +65,7 @@ export default function TarjetaCapacitacion({
 
             {/* Métricas y Acciones Integradas a la Derecha */}
             <div className="flex items-center justify-between md:justify-end gap-3 sm:gap-6 w-full md:w-auto shrink-0 pt-3 md:pt-0 border-t md:border-t-0 border-slate-800/40 flex-wrap">
-                
+
                 {/* Contador de Asistencias */}
                 <div className="flex items-center gap-2 pr-2 sm:pr-4 md:border-r border-slate-800/60">
                     <div className="w-8 h-8 rounded-lg bg-emerald-950/30 border border-emerald-800/30 text-emerald-400 flex items-center justify-center">
@@ -89,11 +88,10 @@ export default function TarjetaCapacitacion({
                         <button
                             type="button"
                             onClick={() => onToggle(cap.id)}
-                            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all min-h-[40px] flex items-center ${
-                                estaActiva
+                            className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-all min-h-[40px] flex items-center ${estaActiva
                                     ? 'border-amber-700/50 hover:bg-amber-950/30 text-amber-300'
                                     : 'border-emerald-700/50 hover:bg-emerald-950/30 text-emerald-300'
-                            }`}
+                                }`}
                             title={estaActiva ? 'Finalizar actividad (bloquear nuevos registros por QR)' : 'Reactivar actividad (admitir registros)'}
                         >
                             {estaActiva ? 'Cerrar Evento' : 'Reactivar'}

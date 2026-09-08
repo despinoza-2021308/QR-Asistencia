@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
-import { 
-    Plus, LogOut, CheckCircle2, AlertCircle, BookOpen, Layers, Users, 
-    Search, Trash2, QrCode, Maximize2, ChevronRight, ArrowLeft, Download, 
-    Building2, Laptop, X, Copy, Check, FileSpreadsheet, FileText, Loader2, ShieldCheck, 
-    Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server 
+import {
+    Plus, LogOut, CheckCircle2, AlertCircle, BookOpen, Layers, Users,
+    Search, Trash2, QrCode, Maximize2, ChevronRight, ArrowLeft, Download,
+    Building2, Laptop, X, Copy, Check, FileSpreadsheet, FileText, Loader2, ShieldCheck,
+    Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server
 } from 'lucide-react';
 import logoOne from '../assets/logo.png';
 import PanelKPIs from './PanelKPIs';
@@ -38,7 +38,7 @@ export default function AdminSesiones({ onLogout }) {
     // Listado de capacitaciones y capacitación seleccionada
     const [capacitaciones, setCapacitaciones] = useState([]);
     const [capacitacionSeleccionada, setCapacitacionSeleccionada] = useState(null); // null = Vista Dashboard Principal
-    
+
     // Datos de la capacitación activa
     const [sesiones, setSesiones] = useState([]);
     const [reporte, setReporte] = useState(null);
@@ -201,7 +201,7 @@ export default function AdminSesiones({ onLogout }) {
     const handleCrearCapacitacion = async (e) => {
         e.preventDefault();
         const tituloLimpio = nuevoTitulo.trim();
-        
+
         if (!tituloLimpio || tituloLimpio.length < 3) {
             mostrarAlerta('error', 'El nombre de la actividad debe tener al menos 3 caracteres.');
             hapticError();
@@ -581,7 +581,7 @@ export default function AdminSesiones({ onLogout }) {
     };
 
     // Filtrar lista del dashboard
-    const capacitacionesFiltradas = capacitaciones.filter(c => 
+    const capacitacionesFiltradas = capacitaciones.filter(c =>
         c.titulo.toLowerCase().includes(filtroDashboard.toLowerCase()) ||
         (c.descripcion && c.descripcion.toLowerCase().includes(filtroDashboard.toLowerCase()))
     );
@@ -600,63 +600,69 @@ export default function AdminSesiones({ onLogout }) {
             <div className="fixed inset-0 bg-[radial-gradient(rgba(255,255,255,0.025)_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
 
             <div className="max-w-[1720px] w-full mx-auto px-4 sm:px-8 lg:px-12 py-6 relative z-10 flex flex-col min-h-screen justify-between">
-                
-                {/* CABECERA FLUIDA MODERNA (ESTILO STRIPE / VERCEL) */}
-                <header className="pb-6 mb-8 border-b border-slate-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+
+                {/* CABECERA CORPORATIVA FLUIDA (ESTILO VISIONOS / FLOATING GLASS BAR) */}
+                <header className="mb-8 p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-900/40 border border-white/[0.08] backdrop-blur-xl shadow-2xl shadow-black/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    {/* Lado Izquierdo: Identidad de Marca Integrada y Título */}
                     <div className="flex items-center gap-3.5">
-                        <div className="bg-white/95 backdrop-blur-md p-2 rounded-xl shadow-sm border border-white/20 flex items-center justify-center shrink-0">
-                            <img src={logoOne} alt="ONE Consulting" className="h-8 md:h-9 w-auto object-contain" />
+                        <div className="bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/40 shadow-sm flex items-center justify-center shrink-0 transition-transform hover:scale-[1.02]">
+                            <img src={logoOne} alt="ONE Consulting" className="h-7 sm:h-8 w-auto object-contain" />
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2 mb-0.5">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-950/40 text-cyan-300 border border-cyan-800/40">
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                <h1 className="text-base sm:text-lg font-extrabold text-white tracking-tight font-display">
+                                    Sistema de Control de Asistencia QR
+                                </h1>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-950/60 text-cyan-300 border border-cyan-800/50">
                                     <ShieldCheck className="w-3 h-3 text-cyan-400" />
-                                    ONE Consulting • Control Oficial
-                                </span>
-                                <span className="text-[11px] text-slate-500 italic hidden sm:inline">
-                                    ¡Su aliado en generar valor!
+                                    <span>Oficial</span>
                                 </span>
                             </div>
-                            <h1 className="text-lg md:text-xl font-extrabold text-white tracking-tight font-display">
-                                Sistema de Control de Asistencia QR
-                            </h1>
+                            <p className="text-[11px] text-slate-400">
+                                ONE Consulting • <span className="text-slate-500 italic">¡Su aliado en generar valor!</span>
+                            </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2.5 flex-wrap">
+                    {/* Lado Derecho: Controles Unificados (Misma Altura h-10 y Radio rounded-xl) */}
+                    <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap self-end md:self-auto">
                         {/* Indicador de Auto-Actualización en Tiempo Real */}
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/80 border border-slate-800 text-xs">
-                            <span className={`w-2 h-2 rounded-full ${autoRefreshActivo ? (actualizandoSilencioso ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400 animate-pulse') : 'bg-slate-500'}`} />
-                            <span className="text-slate-300 font-medium text-[11px] hidden sm:inline">
-                                {autoRefreshActivo ? 'En vivo' : 'En pausa'}
-                            </span>
-                            <button
-                                type="button"
-                                onClick={() => setAutoRefreshActivo(!autoRefreshActivo)}
-                                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold underline ml-0.5"
-                                title={autoRefreshActivo ? 'Pausar auto-actualización en vivo' : 'Activar auto-actualización en vivo'}
-                            >
-                                {autoRefreshActivo ? 'Pausar' : 'Reanudar'}
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => { setAutoRefreshActivo(!autoRefreshActivo); hapticTap(); }}
+                            className={`h-10 px-3.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition-all backdrop-blur-md cursor-pointer ${
+                                autoRefreshActivo
+                                    ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300 hover:bg-emerald-950/50'
+                                    : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                            title={autoRefreshActivo ? 'Click para pausar auto-actualización en vivo' : 'Click para reanudar auto-actualización en vivo'}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${
+                                autoRefreshActivo 
+                                    ? (actualizandoSilencioso ? 'bg-cyan-400 animate-ping' : 'bg-emerald-400 animate-pulse') 
+                                    : 'bg-slate-500'
+                            }`} />
+                            <span>{autoRefreshActivo ? 'En vivo' : 'Pausado'}</span>
+                        </button>
 
                         <BotonInstalarPWA />
 
+                        {/* Botón Primario con Gradiente Ejecutivo */}
                         <button
                             onClick={() => { hapticTap(); setMostrarCrearModal(true); }}
-                            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all shadow-sm min-h-[40px]"
+                            className="h-10 px-4 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-sky-500 via-cyan-500 to-teal-400 hover:brightness-110 shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/35 transition-all flex items-center gap-2 active:scale-95 cursor-pointer shrink-0"
                         >
-                            <Plus className="w-4 h-4" />
+                            <Plus className="w-4 h-4 text-white" />
                             <span>Nueva Capacitación</span>
                         </button>
 
                         {onLogout && (
                             <button
                                 onClick={() => { hapticTap(); onLogout(); }}
-                                className="hover:bg-slate-800/60 text-slate-400 hover:text-white border border-slate-800/80 px-3.5 py-2 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 min-h-[40px]"
+                                className="h-10 px-3.5 rounded-xl text-xs font-medium text-slate-400 hover:text-red-300 bg-white/[0.03] hover:bg-red-950/20 border border-white/[0.08] hover:border-red-500/30 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shrink-0"
                                 title="Cerrar sesión de administrador"
                             >
-                                <LogOut className="w-3.5 h-3.5" />
+                                <LogOut className="w-3.5 h-3.5 text-slate-400" />
                                 <span className="hidden sm:inline">Cerrar Sesión</span>
                             </button>
                         )}
@@ -665,11 +671,10 @@ export default function AdminSesiones({ onLogout }) {
 
                 {/* Banner de Notificaciones */}
                 {mensaje && (
-                    <div className={`mb-6 p-4 rounded-2xl border flex items-center gap-3 text-xs font-medium backdrop-blur-xl shadow-xl transition-all animate-in fade-in duration-200 ${
-                        mensaje.tipo === 'exito' 
-                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200' 
+                    <div className={`mb-6 p-4 rounded-2xl border flex items-center gap-3 text-xs font-medium backdrop-blur-xl shadow-xl transition-all animate-in fade-in duration-200 ${mensaje.tipo === 'exito'
+                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
                             : 'bg-red-950/40 border-red-500/40 text-red-200'
-                    }`}>
+                        }`}>
                         {mensaje.tipo === 'exito' ? (
                             <CheckCircle2 className="w-4 h-4 text-brand-400 shrink-0" />
                         ) : (
@@ -682,9 +687,9 @@ export default function AdminSesiones({ onLogout }) {
                 {/* VISTA 1: DASHBOARD DE CAPACITACIONES */}
                 {!capacitacionSeleccionada ? (
                     <div className="space-y-8 animate-in fade-in duration-300">
-                        
+
                         {/* MÉTRICAS GLOBALES APPLE LIQUID GLASS CARDS */}
-                        <PanelKPIs 
+                        <PanelKPIs
                             totalCapacitaciones={capacitaciones.length}
                             totalSesiones={totalSesionesGlobal}
                             totalAsistencias={totalAsistenciasGlobal}
@@ -692,7 +697,7 @@ export default function AdminSesiones({ onLogout }) {
 
                         {/* DISTRIBUCIÓN A PANTALLA COMPLETA (12 COLUMNAS) */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-2">
-                            
+
                             {/* COLUMNA PRINCIPAL: LISTADO DE CAPACITACIONES (8 o 9 cols) */}
                             <div className="lg:col-span-8 xl:col-span-9 space-y-4">
                                 {/* Barra de Búsqueda y Título */}
@@ -769,7 +774,7 @@ export default function AdminSesiones({ onLogout }) {
                                             100% Operativo
                                         </span>
                                     </div>
-                                    
+
                                     <div className="space-y-3 text-xs text-slate-400">
                                         <div className="flex items-center justify-between">
                                             <span className="flex items-center gap-2">
@@ -816,7 +821,7 @@ export default function AdminSesiones({ onLogout }) {
 
                     /* VISTA 2: DETALLE DE CAPACITACIÓN SELECCIONADA */
                     <div className="space-y-6 animate-in fade-in duration-300">
-                        
+
                         {/* Barra Superior */}
                         <div className="liquid-glass-card rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div>
@@ -838,11 +843,10 @@ export default function AdminSesiones({ onLogout }) {
                             <div className="flex items-center gap-2.5 flex-wrap">
                                 <button
                                     onClick={() => handleToggleCapacitacion(capacitacionSeleccionada.id)}
-                                    className={`border text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-1.5 ${
-                                        capacitacionSeleccionada.activa !== false
+                                    className={`border text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-1.5 ${capacitacionSeleccionada.activa !== false
                                             ? 'border-amber-500/40 bg-amber-950/30 text-amber-300 hover:bg-amber-900/40'
                                             : 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/40'
-                                    }`}
+                                        }`}
                                     title={capacitacionSeleccionada.activa !== false ? 'Cerrar evento y bloquear nuevos registros por QR' : 'Reactivar evento para admitir registros'}
                                 >
                                     <span>{capacitacionSeleccionada.activa !== false ? 'Cerrar Evento' : 'Reactivar Evento'}</span>
@@ -872,8 +876,8 @@ export default function AdminSesiones({ onLogout }) {
 
                                 <button
                                     onClick={() => handleEliminarCapacitacion(
-                                        capacitacionSeleccionada.id, 
-                                        capacitacionSeleccionada.titulo, 
+                                        capacitacionSeleccionada.id,
+                                        capacitacionSeleccionada.titulo,
                                         reporte?.participantes?.length || capacitacionSeleccionada.total_asistencias || 0
                                     )}
                                     className="bg-red-950/30 hover:bg-red-900/40 border border-red-500/30 text-red-300 text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-1.5"
@@ -888,11 +892,10 @@ export default function AdminSesiones({ onLogout }) {
                         <div className="flex border-b border-white/[0.08] overflow-x-auto gap-2">
                             <button
                                 onClick={() => { setTabCapacitacion('sesiones'); setSesionDetalle(null); }}
-                                className={`py-3.5 px-5 text-xs font-semibold border-b-2 transition-all inline-flex items-center gap-2 whitespace-nowrap ${
-                                    tabCapacitacion === 'sesiones'
+                                className={`py-3.5 px-5 text-xs font-semibold border-b-2 transition-all inline-flex items-center gap-2 whitespace-nowrap ${tabCapacitacion === 'sesiones'
                                         ? 'border-brand-400 text-brand-300'
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
-                                }`}
+                                    }`}
                             >
                                 <Layers className="w-4 h-4" />
                                 <span>Sesiones ({sesiones.length})</span>
@@ -900,11 +903,10 @@ export default function AdminSesiones({ onLogout }) {
 
                             <button
                                 onClick={() => { setTabCapacitacion('qr'); setSesionDetalle(null); }}
-                                className={`py-3.5 px-5 text-xs font-semibold border-b-2 transition-all inline-flex items-center gap-2 whitespace-nowrap ${
-                                    tabCapacitacion === 'qr'
+                                className={`py-3.5 px-5 text-xs font-semibold border-b-2 transition-all inline-flex items-center gap-2 whitespace-nowrap ${tabCapacitacion === 'qr'
                                         ? 'border-brand-400 text-brand-300'
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
-                                }`}
+                                    }`}
                             >
                                 <QrCode className="w-4 h-4" />
                                 <span>Código QR del Programa</span>
@@ -912,11 +914,10 @@ export default function AdminSesiones({ onLogout }) {
 
                             <button
                                 onClick={() => { setTabCapacitacion('consolidado'); setSesionDetalle(null); }}
-                                className={`py-3.5 px-5 text-xs font-semibold border-b-2 transition-all inline-flex items-center gap-2 whitespace-nowrap ${
-                                    tabCapacitacion === 'consolidado'
+                                className={`py-3.5 px-5 text-xs font-semibold border-b-2 transition-all inline-flex items-center gap-2 whitespace-nowrap ${tabCapacitacion === 'consolidado'
                                         ? 'border-brand-400 text-brand-300'
                                         : 'border-transparent text-slate-400 hover:text-slate-200'
-                                }`}
+                                    }`}
                             >
                                 <FileSpreadsheet className="w-4 h-4" />
                                 <span>Resumen Consolidado Completo</span>
@@ -1115,11 +1116,10 @@ export default function AdminSesiones({ onLogout }) {
                                                                 <span className="text-slate-400">Estado:</span>
                                                                 <button
                                                                     onClick={() => handleToggleSesion(sesion.id)}
-                                                                    className={`px-3 py-1 rounded-full font-semibold text-[11px] inline-flex items-center gap-1.5 transition border ${
-                                                                        sesion.activa
+                                                                    className={`px-3 py-1 rounded-full font-semibold text-[11px] inline-flex items-center gap-1.5 transition border ${sesion.activa
                                                                             ? 'bg-brand-500/15 text-brand-300 border-brand-500/30 hover:bg-brand-500/25'
                                                                             : 'bg-white/[0.05] text-slate-400 border-white/10 hover:bg-white/10'
-                                                                    }`}
+                                                                        }`}
                                                                     title={sesion.activa ? 'Clic para cerrar sesión' : 'Clic para habilitar sesión'}
                                                                 >
                                                                     <span className={`w-1.5 h-1.5 rounded-full ${sesion.activa ? 'bg-brand-400 animate-pulse' : 'bg-slate-500'}`} />
@@ -1273,7 +1273,7 @@ export default function AdminSesiones({ onLogout }) {
                                                 </thead>
                                                 <tbody className="divide-y divide-white/[0.05]">
                                                     {reporte.participantes
-                                                        .filter(p => 
+                                                        .filter(p =>
                                                             p.nombre_usuario.toLowerCase().includes(filtroTexto.toLowerCase()) ||
                                                             p.empresa.toLowerCase().includes(filtroTexto.toLowerCase()) ||
                                                             p.correo_usuario.toLowerCase().includes(filtroTexto.toLowerCase())
