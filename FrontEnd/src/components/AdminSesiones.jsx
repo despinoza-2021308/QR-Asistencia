@@ -645,43 +645,35 @@ export default function AdminSesiones({ onLogout }) {
             ctx.fillStyle = '#94A3B8';
             ctx.fillText('ONE Consulting • Acreditación y Asistencia Oficial', canvasWidth / 2, cursorY + 12);
 
-            // 10. Generar y descargar archivo PNG
+            // 10. Descarga directa del archivo PNG (sin ventanas de compartir)
             const safeName = `QR - ${tituloTexto.replace(/[/\\?%*:|"<>]/g, '-').trim()}`;
 
-            canvas.toBlob(async (blob) => {
-                if (!blob) {
-                    mostrarAlerta('error', 'Error al procesar la imagen para descarga.');
-                    return;
-                }
-
-                // Compartir nativamente en iPhone/Safari si está soportado
-                if (typeof navigator !== 'undefined' && navigator.canShare) {
-                    try {
-                        const file = new File([blob], `${safeName}.png`, { type: 'image/png' });
-                        if (navigator.canShare({ files: [file] })) {
-                            await navigator.share({
-                                title: `Código QR - ${tituloTexto}`,
-                                files: [file]
-                            });
-                            mostrarAlerta('exito', 'Código QR compartido o guardado en tu dispositivo.');
-                            return;
-                        }
-                    } catch (e) {
-                        if (e.name !== 'AbortError') console.warn(e);
-                    }
-                }
-
-                // Descarga estándar vía Blob ObjectURL
-                const blobUrl = URL.createObjectURL(blob);
+            const ejecutarDescarga = (urlDescarga) => {
                 const downloadLink = document.createElement('a');
-                downloadLink.href = blobUrl;
+                downloadLink.href = urlDescarga;
                 downloadLink.download = `${safeName}.png`;
                 document.body.appendChild(downloadLink);
                 downloadLink.click();
                 document.body.removeChild(downloadLink);
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
                 mostrarAlerta('exito', `Código QR descargado: "${tituloTexto}"`);
-            }, 'image/png');
+            };
+
+            try {
+                // Descarga inmediata mediante DataURL
+                const dataUrl = canvas.toDataURL('image/png');
+                ejecutarDescarga(dataUrl);
+            } catch (errDataUrl) {
+                // Alternativa estándar vía Blob ObjectURL
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        mostrarAlerta('error', 'Error al procesar la imagen para descarga.');
+                        return;
+                    }
+                    const blobUrl = URL.createObjectURL(blob);
+                    ejecutarDescarga(blobUrl);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                }, 'image/png');
+            }
         };
 
         img.onerror = (err) => {
