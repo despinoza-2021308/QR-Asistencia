@@ -867,6 +867,12 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
         errores.correo = 'El formato de correo electrónico no es válido.';
     }
 
+    if (!instructorLimpio || instructorLimpio.length < 3) {
+        errores.instructor = 'El nombre del instructor es obligatorio (mínimo 3 caracteres).';
+    } else if (!/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(instructorLimpio)) {
+        errores.instructor = 'El nombre del instructor debe contener letras válidas.';
+    }
+
     if (Object.keys(errores).length > 0) {
         return res.status(422).json({
             error: 'Por favor corrige los datos del formulario.',

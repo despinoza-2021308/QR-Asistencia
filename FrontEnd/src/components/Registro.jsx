@@ -112,7 +112,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     const [registroExitoso, setRegistroExitoso] = useState(null);
 
     // Control de validaciones y campos tocados
-    const [tocado, setTocado] = useState({ nombre: false, empresa: false, correo: false });
+    const [tocado, setTocado] = useState({ nombre: false, empresa: false, correo: false, instructor: false });
     const [hpVerificacion, setHpVerificacion] = useState(''); // Campo Honeypot invisible contra bots
 
     // Asistencias ya registradas localmente en este dispositivo
@@ -123,14 +123,16 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     const nombreLimpio = sanitizarTexto(nombre);
     const empresaLimpia = sanitizarTexto(empresa);
     const correoLimpio = correo.trim().toLowerCase();
+    const instructorLimpio = sanitizarTexto(instructor);
 
     const esNombreValido = nombreLimpio.length >= 3 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(nombreLimpio);
     const tieneApellido = nombreLimpio.split(' ').filter(Boolean).length >= 2;
     const esEmpresaValida = empresaLimpia.length >= 2;
     const esCorreoValido = emailRegex.test(correoLimpio);
+    const esInstructorValido = instructorLimpio.length >= 3 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(instructorLimpio);
     const sugerenciaCorreo = detectarSugerenciaDominio(correoLimpio);
 
-    const formularioValido = esNombreValido && esEmpresaValida && esCorreoValido && Boolean(sesionSeleccionadaId);
+    const formularioValido = esNombreValido && esEmpresaValida && esCorreoValido && esInstructorValido && Boolean(sesionSeleccionadaId);
 
 
     // 1. Extraer token de la URL y cargar datos previos de localStorage
@@ -146,6 +148,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 if (perfil.nombre) setNombre(toTitleCase(perfil.nombre));
                 if (perfil.empresa) setEmpresa(perfil.empresa);
                 if (perfil.correo) setCorreo(perfil.correo);
+                if (perfil.instructor) setInstructor(toTitleCase(perfil.instructor));
             }
 
             const previas = localStorage.getItem('asistencias_registradas_historial');
@@ -181,7 +184,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             }
 
             if (data.titulo) setNombreActividad(data.titulo);
-            if (data.instructor) setInstructor(data.instructor);
+            if (data.instructor) setInstructor(toTitleCase(data.instructor));
 
             // Preseleccionar la primera sesión activa no registrada
             if (data.sesiones && data.sesiones.length > 0) {
@@ -202,7 +205,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
         e.preventDefault();
         hapticTap();
         setError(null);
-        setTocado({ nombre: true, empresa: true, correo: true });
+        setTocado({ nombre: true, empresa: true, correo: true, instructor: true });
 
         if (!formularioValido) {
             hapticError();
@@ -212,6 +215,8 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 setError('Por favor ingresa el nombre de tu empresa o institución.');
             } else if (!esCorreoValido) {
                 setError('Por favor ingresa un correo electrónico válido (ejemplo@empresa.com).');
+            } else if (!esInstructorValido) {
+                setError('Por favor ingresa el nombre del instructor o facilitador a cargo (mínimo 3 letras).');
             } else if (!sesionSeleccionadaId) {
                 setError('Por favor selecciona la sesión a la que estás asistiendo.');
             }
@@ -227,8 +232,10 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             return;
         }
 
-        // Auto-capitalización formal Title Case del nombre
+        // Auto-capitalización formal Title Case del nombre e instructor
         const nombreFormateado = toTitleCase(nombreLimpio);
+        const instructorFormateado = toTitleCase(instructorLimpio);
+        const actividadFinal = eventoInfo?.titulo || sanitizarTexto(nombreActividad) || 'Capacitación';
 
         // Si el dispositivo está sin señal/offline, guardar en cola local resiliente
         if (!navigator.onLine) {
@@ -241,10 +248,10 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 empresa: empresaLimpia,
                 correo: correoLimpio,
                 modalidad: modalidad,
-                nombre_actividad: sanitizarTexto(nombreActividad),
-                capacitacion_titulo: eventoInfo?.titulo || sanitizarTexto(nombreActividad),
+                nombre_actividad: actividadFinal,
+                capacitacion_titulo: actividadFinal,
                 nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
-                instructor: toTitleCase(sanitizarTexto(instructor)) || eventoInfo?.instructor || '',
+                instructor: instructorFormateado || eventoInfo?.instructor || '',
                 fecha_registro: new Date().toISOString(),
                 isOffline: true
             };
@@ -255,8 +262,8 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 nombre: nombreFormateado,
                 empresa: empresaLimpia,
                 correo: correoLimpio,
-                nombre_actividad: sanitizarTexto(nombreActividad),
-                instructor: toTitleCase(sanitizarTexto(instructor)),
+                nombre_actividad: actividadFinal,
+                instructor: instructorFormateado,
                 modalidad: modalidad
             });
 
@@ -267,7 +274,8 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
                     nombre: nombreFormateado,
                     empresa: empresaLimpia,
-                    correo: correoLimpio
+                    correo: correoLimpio,
+                    instructor: instructorFormateado
                 }));
 
                 const nuevoHistorial = {
@@ -290,8 +298,8 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 nombre: nombreFormateado,
                 empresa: empresaLimpia,
                 correo: correoLimpio,
-                nombre_actividad: sanitizarTexto(nombreActividad),
-                instructor: toTitleCase(sanitizarTexto(instructor)),
+                nombre_actividad: actividadFinal,
+                instructor: instructorFormateado,
                 modalidad: modalidad,
                 _hp_verificacion: hpVerificacion
             });
@@ -305,7 +313,8 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 localStorage.setItem('asistencia_perfil_usuario', JSON.stringify({
                     nombre: nombreFormateado,
                     empresa: empresaLimpia,
-                    correo: correoLimpio
+                    correo: correoLimpio,
+                    instructor: instructorFormateado
                 }));
 
                 const nuevoHistorial = {
@@ -868,33 +877,49 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                                 </div>
                             </div>
 
-                            {/* Instructor y Actividad */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                                        Instructor (Opcional)
+                            {/* Instructor / Facilitador (Obligatorio) */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                                        Instructor / Facilitador *
                                     </label>
+                                    {esInstructorValido && (
+                                        <span className="text-[11px] text-emerald-400 font-medium inline-flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Válido
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                                     <input
                                         type="text"
+                                        required
                                         value={instructor}
-                                        onChange={(e) => setInstructor(e.target.value)}
-                                        placeholder="Nombre del instructor"
-                                        className="w-full liquid-glass-input rounded-xl px-3.5 py-2.5 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none min-h-[42px]"
+                                        onBlur={() => {
+                                            setTocado(prev => ({ ...prev, instructor: true }));
+                                            if (instructor && instructor.trim()) {
+                                                setInstructor(toTitleCase(instructor));
+                                            }
+                                        }}
+                                        onChange={(e) => {
+                                            setInstructor(e.target.value);
+                                            if (error) setError(null);
+                                        }}
+                                        placeholder="Ej: Ing. Roberto Méndez / Lic. Ana Gómez"
+                                        className={`w-full liquid-glass-input rounded-xl pl-10 pr-10 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px] ${
+                                            tocado.instructor && !esInstructorValido ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
+                                        }`}
                                     />
+                                    {tocado.instructor && !esInstructorValido && (
+                                        <AlertCircle className="w-4 h-4 text-red-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    )}
                                 </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                                        Actividad
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={nombreActividad}
-                                        onChange={(e) => setNombreActividad(e.target.value)}
-                                        placeholder="Nombre del evento"
-                                        className="w-full liquid-glass-input rounded-xl px-3.5 py-2.5 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none min-h-[42px]"
-                                    />
-                                </div>
+                                {tocado.instructor && !esInstructorValido && (
+                                    <p className="text-[11px] text-red-400 mt-1 flex items-center gap-1">
+                                        <span>• Ingresa el nombre del instructor (mínimo 3 letras, no solo números).</span>
+                                    </p>
+                                )}
                             </div>
 
                             <button
