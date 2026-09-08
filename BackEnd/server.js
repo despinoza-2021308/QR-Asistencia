@@ -810,10 +810,10 @@ app.get(['/api/evento-info/:token', '/api/sesion-info/:token'], async (req, res)
 /**
  * @route   POST /api/registrar-asistencia
  * @desc    Registrar la asistencia con Modelo de Identidad Unificada Maestro-Detalle y Búsqueda Inteligente
- * @body    { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad }
+ * @body    { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad, fecha }
  */
 app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
-    const { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad, _hp_verificacion } = req.body;
+    const { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad, fecha, _hp_verificacion } = req.body;
 
     // 0. Trampa Honeypot contra Bots y Scripts de Scraping/Spam
     if (_hp_verificacion && typeof _hp_verificacion === 'string' && _hp_verificacion.trim() !== '') {
@@ -839,6 +839,16 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
     const modalidadLimpia = modalidad && modalidad.trim().toLowerCase() === 'virtual' ? 'Virtual' : 'Presencial';
     const instructorLimpio = instructor ? toTitleCase(cleanString(instructor, 120)) : null;
     const actividadLimpia = nombre_actividad ? cleanString(nombre_actividad, 200) : null;
+
+    // Sanitización y validación de fecha de sesión (formato YYYY-MM-DD)
+    const fechaRegex = /^\d{4}-\d{2}-\d{2}$/;
+    let fechaLimpia = null;
+    if (fecha && typeof fecha === 'string') {
+        const fTrim = fecha.trim();
+        if (fechaRegex.test(fTrim)) {
+            fechaLimpia = fTrim;
+        }
+    }
 
     const errores = {};
 
@@ -883,7 +893,7 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
     try {
         // 2. Validar que la sesión exista, pertenezca a la capacitación con este token QR, esté activa y la capacitación no haya sido cerrada
         const sesionQuery = `
-            SELECT s.id AS sesion_id, s.nombre_sesion, s.numero_sesion, s.activa, 
+            SELECT s.id AS sesion_id, s.nombre_sesion, s.numero_sesion, s.fecha, s.activa, 
                    c.id AS capacitacion_id, c.titulo AS capacitacion_titulo, 
                    COALESCE(c.activa, TRUE) AS capacitacion_activa
             FROM sesiones s
@@ -1000,12 +1010,24 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
         }
 
         // 4. Insertar asistencia transaccional vinculada estrictamente al participant_id
+        // Si el participante especificó la fecha de la sesión, combinarla con la hora actual
+        let timestampRegistro;
+        if (fechaLimpia) {
+            const ahora = new Date();
+            const hh = String(ahora.getHours()).padStart(2, '0');
+            const mm = String(ahora.getMinutes()).padStart(2, '0');
+            const ss = String(ahora.getSeconds()).padStart(2, '0');
+            timestampRegistro = `${fechaLimpia} ${hh}:${mm}:${ss}`;
+        } else {
+            timestampRegistro = new Date();
+        }
+
         const insertQuery = `
             INSERT INTO asistencias (
                 sesion_id, participant_id, nombre_usuario, correo_usuario,
                 empresa, modalidad, instructor, nombre_actividad, fecha_hora_registro, fecha_registro
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING id, sesion_id, participant_id, nombre_usuario, correo_usuario,
                       empresa, modalidad, instructor, nombre_actividad, fecha_hora_registro;
         `;
@@ -1017,8 +1039,21 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
             empresaLimpia || participanteMaestro.empresa,
             modalidadLimpia,
             instructorLimpio,
-            actividadLimpia || sesion.capacitacion_titulo
+            actividadLimpia || sesion.capacitacion_titulo,
+            timestampRegistro
         ]);
+
+        // Sincronizar fecha en la sesión si fue provista y difiere de la actual
+        if (fechaLimpia) {
+            try {
+                await pool.query(
+                    `UPDATE sesiones SET fecha = $1 WHERE id = $2;`,
+                    [fechaLimpia, sesion.sesion_id]
+                );
+            } catch (errSyncFecha) {
+                console.warn('Aviso: no se pudo actualizar fecha de la sesión:', errSyncFecha);
+            }
+        }
 
         res.status(201).json({
             message: '¡Asistencia registrada con éxito!',
@@ -1026,6 +1061,7 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
                 ...insertResult.rows[0],
                 nombre_sesion: sesion.nombre_sesion,
                 capacitacion_titulo: actividadLimpia || sesion.capacitacion_titulo,
+                fecha_sesion: fechaLimpia || (sesion.fecha ? String(sesion.fecha).split('T')[0] : null),
                 fecha_registro: insertResult.rows[0].fecha_hora_registro
             }
         });

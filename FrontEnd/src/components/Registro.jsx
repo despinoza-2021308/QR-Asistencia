@@ -27,6 +27,27 @@ const formatearHoraSegura = (fechaStr) => {
     }
 };
 
+// Helper compatible para formatear fechas en formato legible en español
+const formatearFechaSegura = (fechaStr) => {
+    if (!fechaStr) return '';
+    try {
+        let limpia = String(fechaStr).split('T')[0];
+        if (limpia.includes(' ')) limpia = limpia.split(' ')[0];
+        const partes = limpia.split('-');
+        if (partes.length === 3) {
+            const y = parseInt(partes[0], 10);
+            const m = parseInt(partes[1], 10) - 1;
+            const d = parseInt(partes[2], 10);
+            const fechaObj = new Date(y, m, d);
+            return fechaObj.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+        }
+        const d = new Date(fechaStr);
+        return isNaN(d.getTime()) ? String(fechaStr) : d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (e) {
+        return String(fechaStr || '');
+    }
+};
+
 // Diccionario de dominios comunes para detección de errores tipográficos (anti-typo)
 const SUGERENCIAS_DOMINIOS = {
     'gmial.com': 'gmail.com',
@@ -105,6 +126,13 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     const [instructor, setInstructor] = useState('');
     const [modalidad, setModalidad] = useState('Presencial'); // 'Presencial' | 'Virtual'
     const [sesionSeleccionadaId, setSesionSeleccionadaId] = useState('');
+    const [fechaSesion, setFechaSesion] = useState(() => {
+        const hoy = new Date();
+        const y = hoy.getFullYear();
+        const m = String(hoy.getMonth() + 1).padStart(2, '0');
+        const d = String(hoy.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    });
     const [submitting, setSubmitting] = useState(false);
     
     // Feedback y resultados
@@ -112,7 +140,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     const [registroExitoso, setRegistroExitoso] = useState(null);
 
     // Control de validaciones y campos tocados
-    const [tocado, setTocado] = useState({ nombre: false, empresa: false, correo: false, instructor: false });
+    const [tocado, setTocado] = useState({ nombre: false, empresa: false, correo: false, instructor: false, fecha: false });
     const [hpVerificacion, setHpVerificacion] = useState(''); // Campo Honeypot invisible contra bots
 
     // Asistencias ya registradas localmente en este dispositivo
@@ -130,9 +158,10 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     const esEmpresaValida = empresaLimpia.length >= 2;
     const esCorreoValido = emailRegex.test(correoLimpio);
     const esInstructorValido = instructorLimpio.length >= 3 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(instructorLimpio);
+    const esFechaValida = Boolean(fechaSesion && /^\d{4}-\d{2}-\d{2}$/.test(fechaSesion));
     const sugerenciaCorreo = detectarSugerenciaDominio(correoLimpio);
 
-    const formularioValido = esNombreValido && esEmpresaValida && esCorreoValido && esInstructorValido && Boolean(sesionSeleccionadaId);
+    const formularioValido = esNombreValido && esEmpresaValida && esCorreoValido && esInstructorValido && esFechaValida && Boolean(sesionSeleccionadaId);
 
 
     // 1. Extraer token de la URL y cargar datos previos de localStorage
@@ -186,10 +215,18 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             if (data.titulo) setNombreActividad(data.titulo);
             if (data.instructor) setInstructor(toTitleCase(data.instructor));
 
-            // Preseleccionar la primera sesión activa no registrada
+            // Preseleccionar la primera sesión activa no registrada y sincronizar fecha si existe
             if (data.sesiones && data.sesiones.length > 0) {
                 const primeraActiva = data.sesiones.find(s => s.activa) || data.sesiones[0];
                 setSesionSeleccionadaId(primeraActiva.id);
+                if (primeraActiva.fecha) {
+                    try {
+                        const fStr = String(primeraActiva.fecha).split('T')[0];
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(fStr)) {
+                            setFechaSesion(fStr);
+                        }
+                    } catch (e) {}
+                }
             }
         } catch (err) {
             console.error('Error al validar evento:', err);
@@ -205,11 +242,15 @@ export default function Registro({ tokenProp, onIrAdmin }) {
         e.preventDefault();
         hapticTap();
         setError(null);
-        setTocado({ nombre: true, empresa: true, correo: true, instructor: true });
+        setTocado({ nombre: true, empresa: true, correo: true, instructor: true, fecha: true });
 
         if (!formularioValido) {
             hapticError();
-            if (!esNombreValido) {
+            if (!sesionSeleccionadaId) {
+                setError('Por favor selecciona la sesión a la que estás asistiendo.');
+            } else if (!esFechaValida) {
+                setError('Por favor selecciona una fecha válida para la sesión.');
+            } else if (!esNombreValido) {
                 setError('Por favor ingresa un nombre válido de al menos 3 letras.');
             } else if (!esEmpresaValida) {
                 setError('Por favor ingresa el nombre de tu empresa o institución.');
@@ -217,8 +258,6 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 setError('Por favor ingresa un correo electrónico válido (ejemplo@empresa.com).');
             } else if (!esInstructorValido) {
                 setError('Por favor ingresa el nombre del instructor o facilitador a cargo (mínimo 3 letras).');
-            } else if (!sesionSeleccionadaId) {
-                setError('Por favor selecciona la sesión a la que estás asistiendo.');
             }
             return;
         }
@@ -251,6 +290,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 nombre_actividad: actividadFinal,
                 capacitacion_titulo: actividadFinal,
                 nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
+                fecha_sesion: fechaSesion,
                 instructor: instructorFormateado || eventoInfo?.instructor || '',
                 fecha_registro: new Date().toISOString(),
                 isOffline: true
@@ -264,6 +304,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 correo: correoLimpio,
                 nombre_actividad: actividadFinal,
                 instructor: instructorFormateado,
+                fecha: fechaSesion,
                 modalidad: modalidad
             });
 
@@ -300,6 +341,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 correo: correoLimpio,
                 nombre_actividad: actividadFinal,
                 instructor: instructorFormateado,
+                fecha: fechaSesion,
                 modalidad: modalidad,
                 _hp_verificacion: hpVerificacion
             });
@@ -350,9 +392,10 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                     empresa: empresa.trim(),
                     correo: correo.trim().toLowerCase(),
                     modalidad: modalidad,
-                    nombre_actividad: nombreActividad.trim(),
-                    capacitacion_titulo: eventoInfo?.titulo || nombreActividad.trim(),
+                    nombre_actividad: actividadFinal,
+                    capacitacion_titulo: eventoInfo?.titulo || actividadFinal,
                     nombre_sesion: sesionObj?.nombre_sesion || sesionObj?.nombre || 'Sesión seleccionada',
+                    fecha_sesion: fechaSesion,
                     instructor: instructor.trim() || eventoInfo?.instructor || '',
                     fecha_registro: new Date().toISOString(),
                     isOffline: true
@@ -364,8 +407,9 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                     nombre: nombre.trim(),
                     empresa: empresa.trim(),
                     correo: correo.trim().toLowerCase(),
-                    nombre_actividad: nombreActividad.trim(),
+                    nombre_actividad: actividadFinal,
                     instructor: instructor.trim(),
+                    fecha: fechaSesion,
                     modalidad: modalidad
                 });
 
@@ -520,20 +564,29 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                                     <p className="text-brand-300 font-semibold mt-0.5">{registroExitoso.nombre_sesion}</p>
                                 </div>
                                 <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Fecha de la Sesión</span>
+                                    <span className="inline-flex items-center gap-1.5 text-slate-200 font-medium mt-0.5">
+                                        <Calendar className="w-3.5 h-3.5 text-brand-400" />
+                                        {formatearFechaSegura(registroExitoso.fecha_sesion || registroExitoso.fecha || registroExitoso.fecha_registro)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 pt-2.5 border-t border-white/[0.08]">
+                                <div>
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Hora de Registro</span>
                                     <span className="inline-flex items-center gap-1 text-slate-400 mt-0.5 tabular-numbers">
                                         <Clock className="w-3 h-3 text-slate-400" />
                                         {formatearHoraSegura(registroExitoso.fecha_registro)}
                                     </span>
                                 </div>
+                                {registroExitoso.instructor && (
+                                    <div>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Instructor</span>
+                                        <p className="text-slate-300 mt-0.5 truncate">{registroExitoso.instructor}</p>
+                                    </div>
+                                )}
                             </div>
-
-                            {registroExitoso.instructor && (
-                                <div className="pt-2.5 border-t border-white/[0.08]">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Instructor</span>
-                                    <p className="text-slate-300 mt-0.5">{registroExitoso.instructor}</p>
-                                </div>
-                            )}
                         </div>
 
                         <button
@@ -659,8 +712,18 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                                     <select
                                         value={sesionSeleccionadaId}
                                         onChange={(e) => {
-                                            setSesionSeleccionadaId(e.target.value);
+                                            const nuevaId = e.target.value;
+                                            setSesionSeleccionadaId(nuevaId);
                                             setError(null);
+                                            const sElegida = eventoInfo?.sesiones?.find(s => String(s.id) === String(nuevaId));
+                                            if (sElegida?.fecha) {
+                                                try {
+                                                    const fStr = String(sElegida.fecha).split('T')[0];
+                                                    if (/^\d{4}-\d{2}-\d{2}$/.test(fStr)) {
+                                                        setFechaSesion(fStr);
+                                                    }
+                                                } catch (err) {}
+                                            }
                                         }}
                                         required
                                         className="w-full liquid-glass-input text-slate-200 font-medium rounded-2xl px-4 py-3 text-base sm:text-xs focus:outline-none min-h-[44px]"
@@ -676,6 +739,43 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                                     </select>
                                 </div>
                             )}
+
+                            {/* Fecha de la Sesión */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                                        Fecha de la Sesión *
+                                    </label>
+                                    {esFechaValida && (
+                                        <span className="text-[11px] text-emerald-400 font-medium inline-flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Válida
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="date"
+                                        required
+                                        value={fechaSesion}
+                                        onBlur={() => setTocado(prev => ({ ...prev, fecha: true }))}
+                                        onChange={(e) => {
+                                            setFechaSesion(e.target.value);
+                                            if (error) setError(null);
+                                        }}
+                                        className={`w-full liquid-glass-input rounded-xl pl-10 pr-4 py-3 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none transition-all min-h-[44px] [color-scheme:dark] ${
+                                            tocado.fecha && !esFechaValida ? 'border-red-500/60 ring-1 ring-red-500/30' : ''
+                                        }`}
+                                    />
+                                    {tocado.fecha && !esFechaValida && (
+                                        <AlertCircle className="w-4 h-4 text-red-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    )}
+                                </div>
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                    Fecha en que se impartió o se está impartiendo la sesión.
+                                </p>
+                            </div>
 
                             {/* Aviso si ya registró esta sesión */}
                             {yaRegistradoEnEsta && (
