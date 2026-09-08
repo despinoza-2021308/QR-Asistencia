@@ -95,14 +95,15 @@ async function generarExcelConsolidado(capacitacionId, pool) {
     const sesiones = sesRes.rows;
     const totalSesiones = sesiones.length;
 
-    // 3. Obtener participantes y sus asistencias por sesión
+    // 3. Obtener participantes unificados y sus asistencias por sesión
     const repRes = await pool.query(
         `SELECT 
-            a.correo_usuario,
-            a.nombre_usuario,
-            MAX(a.empresa) AS empresa,
-            MAX(a.modalidad) AS modalidad,
-            MAX(a.instructor) AS instructor,
+            p.id AS participant_id,
+            p.nombre AS nombre_usuario,
+            p.email_principal AS correo_usuario,
+            COALESCE(MAX(a.empresa), p.empresa, 'No especificada') AS empresa,
+            COALESCE(MAX(a.modalidad), 'Presencial') AS modalidad,
+            COALESCE(MAX(a.instructor), 'No especificado') AS instructor,
             COUNT(DISTINCT a.sesion_id)::int AS total_sesiones_asistidas,
             json_agg(
                 json_build_object(
@@ -111,11 +112,12 @@ async function generarExcelConsolidado(capacitacionId, pool) {
                     'numero_sesion', s.numero_sesion
                 ) ORDER BY s.numero_sesion ASC, s.id ASC
             ) AS detalle_sesiones
-         FROM asistencias a
+         FROM participantes p
+         JOIN asistencias a ON a.participant_id = p.id
          JOIN sesiones s ON a.sesion_id = s.id
-         WHERE s.capacitacion_id = $1
-         GROUP BY a.correo_usuario, a.nombre_usuario
-         ORDER BY total_sesiones_asistidas DESC, a.nombre_usuario ASC`,
+         WHERE p.capacitacion_id = $1
+         GROUP BY p.id, p.nombre, p.email_principal, p.empresa
+         ORDER BY total_sesiones_asistidas DESC, p.nombre ASC`,
         [capacitacionId]
     );
 
@@ -414,12 +416,22 @@ async function generarPdfSesion(sesionId, pool) {
     }
     const sesion = sesRes.rows[0];
 
-    // 2. Obtener lista de asistentes registrados en esta sesión cronológicamente
+    // 2. Obtener lista de asistentes registrados en esta sesión con perfil maestro unificado
     const asistenciasRes = await pool.query(
-        `SELECT id, nombre_usuario, empresa, correo_usuario, modalidad, instructor, fecha_registro
-         FROM asistencias
-         WHERE sesion_id = $1
-         ORDER BY fecha_registro ASC, id ASC`,
+        `SELECT 
+            a.id, 
+            a.sesion_id, 
+            a.participant_id,
+            COALESCE(p.nombre, a.nombre_usuario) AS nombre_usuario, 
+            COALESCE(a.empresa, p.empresa, '—') AS empresa, 
+            COALESCE(p.email_principal, a.correo_usuario) AS correo_usuario, 
+            a.modalidad, 
+            a.instructor, 
+            COALESCE(a.fecha_hora_registro, a.fecha_registro) AS fecha_registro
+         FROM asistencias a
+         LEFT JOIN participantes p ON a.participant_id = p.id
+         WHERE a.sesion_id = $1
+         ORDER BY COALESCE(a.fecha_hora_registro, a.fecha_registro) ASC, a.id ASC`,
         [sesionId]
     );
     const asistentes = asistenciasRes.rows;

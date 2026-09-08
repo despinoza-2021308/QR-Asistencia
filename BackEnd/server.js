@@ -282,10 +282,34 @@ pool.connect(async (err, client, release) => {
         const dbName = DATABASE_URL ? 'Supabase Cloud PostgreSQL' : (process.env.DB_NAME || 'postgres');
         console.log('✅ Conexión exitosa a PostgreSQL en:', dbName);
         try {
-            // Asegurar columna activa en capacitaciones para control de ciclo de vida
+            // Asegurar columnas base
             await client.query('ALTER TABLE capacitaciones ADD COLUMN IF NOT EXISTS activa BOOLEAN DEFAULT TRUE;');
-            // Asegurar índice único por sesión y correo normalizado para evitar duplicados por condiciones de carrera
-            await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_asistencia_unica_sesion_correo ON asistencias (sesion_id, LOWER(TRIM(correo_usuario)));');
+            await client.query('ALTER TABLE sesiones ADD COLUMN IF NOT EXISTS activa BOOLEAN DEFAULT TRUE;');
+
+            // Asegurar tabla maestra participantes
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS participantes (
+                    id SERIAL PRIMARY KEY,
+                    capacitacion_id INTEGER NOT NULL REFERENCES capacitaciones(id) ON DELETE CASCADE,
+                    nombre VARCHAR(255) NOT NULL,
+                    email_principal VARCHAR(255) NOT NULL,
+                    empresa VARCHAR(255),
+                    fecha_creacion TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    fecha_actualizacion TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+            `);
+
+            // Asegurar columnas en asistencias
+            await client.query('ALTER TABLE asistencias ADD COLUMN IF NOT EXISTS participant_id INTEGER REFERENCES participantes(id) ON DELETE CASCADE;');
+            await client.query('ALTER TABLE asistencias ADD COLUMN IF NOT EXISTS fecha_hora_registro TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;');
+
+            // Asegurar índices de identidad y unicidad
+            await client.query('CREATE INDEX IF NOT EXISTS idx_participantes_capacitacion ON participantes(capacitacion_id);');
+            await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_participante_capacitacion_email ON participantes (capacitacion_id, LOWER(TRIM(email_principal)));');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_participantes_capacitacion_nombre ON participantes (capacitacion_id, LOWER(TRIM(nombre)));');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_asistencias_sesion ON asistencias(sesion_id);');
+            await client.query('CREATE INDEX IF NOT EXISTS idx_asistencias_participant ON asistencias(participant_id);');
+            await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_asistencia_unica_sesion_participante ON asistencias (sesion_id, participant_id);');
         } catch (schemaErr) {
             console.warn('Aviso sobre esquema en PostgreSQL:', schemaErr.message);
         } finally {
@@ -376,10 +400,12 @@ app.get('/api/capacitaciones', requireAdminAuth, async (req, res) => {
                 COALESCE(c.activa, TRUE) AS activa,
                 c.fecha_creacion,
                 COUNT(DISTINCT s.id)::int AS total_sesiones,
-                COUNT(DISTINCT a.id)::int AS total_asistencias
+                COUNT(DISTINCT a.id)::int AS total_asistencias,
+                COUNT(DISTINCT p.id)::int AS total_participantes
             FROM capacitaciones c
             LEFT JOIN sesiones s ON c.id = s.capacitacion_id
             LEFT JOIN asistencias a ON s.id = a.sesion_id
+            LEFT JOIN participantes p ON c.id = p.capacitacion_id
             GROUP BY c.id
             ORDER BY c.id DESC;
         `;
@@ -565,12 +591,23 @@ app.get('/api/sesiones/:id/asistencias', requireAdminAuth, async (req, res) => {
 
         const sesion = sesionRes.rows[0];
 
-        // 2. Obtener lista de asistentes de esa sesión
+        // 2. Obtener lista de asistentes de esa sesión con perfil maestro unificado
         const asistenciasRes = await pool.query(
-            `SELECT id, sesion_id, nombre_usuario, empresa, correo_usuario, modalidad, instructor, nombre_actividad, fecha_registro
-             FROM asistencias
-             WHERE sesion_id = $1
-             ORDER BY fecha_registro DESC`,
+            `SELECT 
+                a.id, 
+                a.sesion_id, 
+                a.participant_id,
+                COALESCE(p.nombre, a.nombre_usuario) AS nombre_usuario, 
+                COALESCE(a.empresa, p.empresa, 'No especificada') AS empresa, 
+                COALESCE(p.email_principal, a.correo_usuario) AS correo_usuario, 
+                a.modalidad, 
+                a.instructor, 
+                a.nombre_actividad, 
+                COALESCE(a.fecha_hora_registro, a.fecha_registro) AS fecha_registro
+             FROM asistencias a
+             LEFT JOIN participantes p ON a.participant_id = p.id
+             WHERE a.sesion_id = $1
+             ORDER BY COALESCE(a.fecha_hora_registro, a.fecha_registro) DESC`,
             [id]
         );
 
@@ -749,7 +786,7 @@ app.get(['/api/evento-info/:token', '/api/sesion-info/:token'], async (req, res)
 
 /**
  * @route   POST /api/registrar-asistencia
- * @desc    Registrar la asistencia con Nombre, Empresa, Correo, Modalidad, Instructor y Sesión (Protegido contra IDOR)
+ * @desc    Registrar la asistencia con Modelo de Identidad Unificada Maestro-Detalle y Búsqueda Inteligente
  * @body    { token, sesion_id, nombre, empresa, correo, modalidad, instructor, nombre_actividad }
  */
 app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
@@ -773,7 +810,8 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
     const tokenLimpio = cleanString(token, 64);
     const nombreLimpio = cleanString(nombre, 120);
     const empresaLimpia = cleanString(empresa, 120);
-    const correoLimpio = cleanString(correo, 120).toLowerCase();
+    // Normalización de correo en minúsculas y sin espacios
+    const correoNormalizado = cleanString(correo, 120).trim().toLowerCase();
     const modalidadLimpia = modalidad && modalidad.trim().toLowerCase() === 'virtual' ? 'Virtual' : 'Presencial';
     const instructorLimpio = instructor ? cleanString(instructor, 120) : null;
     const actividadLimpia = nombre_actividad ? cleanString(nombre_actividad, 200) : null;
@@ -799,9 +837,9 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!correoLimpio) {
+    if (!correoNormalizado) {
         errores.correo = 'El correo electrónico es obligatorio.';
-    } else if (!emailRegex.test(correoLimpio)) {
+    } else if (!emailRegex.test(correoNormalizado)) {
         errores.correo = 'El formato de correo electrónico no es válido.';
     }
 
@@ -815,7 +853,9 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
     try {
         // 2. Validar que la sesión exista, pertenezca a la capacitación con este token QR, esté activa y la capacitación no haya sido cerrada
         const sesionQuery = `
-            SELECT s.id, s.nombre_sesion, s.numero_sesion, s.activa, c.id AS capacitacion_id, c.titulo AS capacitacion_titulo, COALESCE(c.activa, TRUE) AS capacitacion_activa
+            SELECT s.id AS sesion_id, s.nombre_sesion, s.numero_sesion, s.activa, 
+                   c.id AS capacitacion_id, c.titulo AS capacitacion_titulo, 
+                   COALESCE(c.activa, TRUE) AS capacitacion_activa
             FROM sesiones s
             JOIN capacitaciones c ON s.capacitacion_id = c.id
             WHERE s.id = $1 AND c.token = $2;
@@ -840,50 +880,106 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
             });
         }
 
-        // 3. Validar si ya existe un registro en esta sesión por Correo O por Nombre
-        const duplicadoCheck = await pool.query(
-            `SELECT id, nombre_usuario, correo_usuario, empresa, modalidad, instructor, fecha_registro 
-             FROM asistencias 
-             WHERE sesion_id = $1 
-               AND (
-                   LOWER(TRIM(correo_usuario)) = LOWER(TRIM($2)) 
-                   OR LOWER(TRIM(nombre_usuario)) = LOWER(TRIM($3))
-               )
+        // 3. Búsqueda Inteligente de Identidad Unificada (Maestro-Detalle)
+        // Paso 3.1: Buscar coincidencia exacta por correo normalizado dentro de la capacitación
+        let participanteMaestro = null;
+        let partRes = await pool.query(
+            `SELECT id, capacitacion_id, nombre, email_principal, empresa 
+             FROM participantes 
+             WHERE capacitacion_id = $1 AND LOWER(TRIM(email_principal)) = LOWER(TRIM($2))
              LIMIT 1;`,
-            [sesion.id, correoLimpio, nombreLimpio]
+            [sesion.capacitacion_id, correoNormalizado]
         );
 
-        if (duplicadoCheck.rows.length > 0) {
-            const d = duplicadoCheck.rows[0];
-            const esMismoNombre = d.nombre_usuario.trim().toLowerCase() === nombreLimpio.toLowerCase();
-            const motivo = esMismoNombre 
-                ? `el nombre "${d.nombre_usuario}"` 
-                : `el correo "${d.correo_usuario}"`;
+        if (partRes.rows.length > 0) {
+            participanteMaestro = partRes.rows[0];
+        } else {
+            // Paso 3.2: Si no coincide por correo, buscar por coincidencia de nombre completo en la misma capacitación
+            // Esto evita que un error tipográfico en el correo duplique al participante en reportes
+            partRes = await pool.query(
+                `SELECT id, capacitacion_id, nombre, email_principal, empresa 
+                 FROM participantes 
+                 WHERE capacitacion_id = $1 AND LOWER(TRIM(nombre)) = LOWER(TRIM($2))
+                 LIMIT 1;`,
+                [sesion.capacitacion_id, nombreLimpio]
+            );
 
-            return res.status(409).json({
-                error: `⚠️ Ya existe una asistencia registrada en la ${sesion.nombre_sesion} con ${motivo}. No está permitido registrarse dos veces a la misma sesión.`,
-                yaRegistrado: true,
-                registro: {
-                    ...d,
-                    nombre_sesion: sesion.nombre_sesion,
-                    capacitacion_titulo: actividadLimpia || sesion.capacitacion_titulo
-                }
-            });
+            if (partRes.rows.length > 0) {
+                participanteMaestro = partRes.rows[0];
+                console.log(`ℹ️ [Identidad Unificada] Asistente identificado por nombre: "${participanteMaestro.nombre}". Correo maestro reutilizado: "${participanteMaestro.email_principal}" (correo móvil ingresado: "${correoNormalizado}")`);
+            }
         }
 
-        // 4. Insertar asistencia
+        let participantId;
+
+        if (participanteMaestro) {
+            participantId = participanteMaestro.id;
+
+            // Paso 3.3: Validar si este participante maestro YA registró asistencia en esta sesión
+            const dupCheck = await pool.query(
+                `SELECT a.id, a.sesion_id, a.participant_id, a.modalidad, a.instructor, a.nombre_actividad,
+                        COALESCE(a.fecha_hora_registro, a.fecha_registro) AS fecha_registro,
+                        COALESCE(p.nombre, a.nombre_usuario) AS nombre_usuario,
+                        COALESCE(p.email_principal, a.correo_usuario) AS correo_usuario,
+                        COALESCE(a.empresa, p.empresa) AS empresa
+                 FROM asistencias a
+                 JOIN participantes p ON a.participant_id = p.id
+                 WHERE a.sesion_id = $1 AND a.participant_id = $2
+                 LIMIT 1;`,
+                [sesion.sesion_id, participantId]
+            );
+
+            if (dupCheck.rows.length > 0) {
+                const d = dupCheck.rows[0];
+                return res.status(409).json({
+                    error: `⚠️ Ya existe una asistencia registrada en la ${sesion.nombre_sesion} para "${participanteMaestro.nombre}". No está permitido registrarse dos veces a la misma sesión.`,
+                    yaRegistrado: true,
+                    registro: {
+                        ...d,
+                        nombre_sesion: sesion.nombre_sesion,
+                        capacitacion_titulo: actividadLimpia || sesion.capacitacion_titulo
+                    }
+                });
+            }
+
+            // Si el perfil maestro no tenía empresa registrada y ahora se provee una válida, actualizar perfil maestro
+            if ((!participanteMaestro.empresa || participanteMaestro.empresa.trim() === '') && empresaLimpia) {
+                await pool.query(
+                    `UPDATE participantes SET empresa = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = $2;`,
+                    [empresaLimpia, participantId]
+                );
+                participanteMaestro.empresa = empresaLimpia;
+            }
+        } else {
+            // Paso 3.4: Si no existe, crear nuevo registro maestro en la tabla participantes
+            const insertPart = await pool.query(
+                `INSERT INTO participantes (capacitacion_id, nombre, email_principal, empresa)
+                 VALUES ($1, $2, $3, $4)
+                 RETURNING id, capacitacion_id, nombre, email_principal, empresa;`,
+                [sesion.capacitacion_id, nombreLimpio, correoNormalizado, empresaLimpia || null]
+            );
+            participanteMaestro = insertPart.rows[0];
+            participantId = participanteMaestro.id;
+        }
+
+        // 4. Insertar asistencia transaccional vinculada estrictamente al participant_id
         const insertQuery = `
-            INSERT INTO asistencias (sesion_id, nombre_usuario, empresa, correo_usuario, modalidad, instructor, nombre_actividad)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, sesion_id, nombre_usuario, empresa, correo_usuario, modalidad, instructor, nombre_actividad, fecha_registro;
+            INSERT INTO asistencias (
+                sesion_id, participant_id, nombre_usuario, correo_usuario,
+                empresa, modalidad, instructor, nombre_actividad, fecha_hora_registro, fecha_registro
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id, sesion_id, participant_id, nombre_usuario, correo_usuario,
+                      empresa, modalidad, instructor, nombre_actividad, fecha_hora_registro;
         `;
         const insertResult = await pool.query(insertQuery, [
-            sesion.id, 
-            nombreLimpio, 
-            empresaLimpia, 
-            correoLimpio, 
-            modalidadLimpia, 
-            instructorLimpio, 
+            sesion.sesion_id,
+            participantId,
+            participanteMaestro.nombre,
+            participanteMaestro.email_principal,
+            empresaLimpia || participanteMaestro.empresa,
+            modalidadLimpia,
+            instructorLimpio,
             actividadLimpia || sesion.capacitacion_titulo
         ]);
 
@@ -892,7 +988,8 @@ app.post('/api/registrar-asistencia', registroLimiter, async (req, res) => {
             registro: {
                 ...insertResult.rows[0],
                 nombre_sesion: sesion.nombre_sesion,
-                capacitacion_titulo: actividadLimpia || sesion.capacitacion_titulo
+                capacitacion_titulo: actividadLimpia || sesion.capacitacion_titulo,
+                fecha_registro: insertResult.rows[0].fecha_hora_registro
             }
         });
 
@@ -944,11 +1041,12 @@ app.get('/api/reporte/capacitacion/:capacitacionId', requireAdminAuth, async (re
 
         const reporteQuery = `
             SELECT 
-                a.correo_usuario,
-                a.nombre_usuario,
-                MAX(a.empresa) AS empresa,
-                MAX(a.modalidad) AS modalidad,
-                MAX(a.instructor) AS instructor,
+                p.id AS participant_id,
+                p.nombre AS nombre_usuario,
+                p.email_principal AS correo_usuario,
+                COALESCE(MAX(a.empresa), p.empresa, 'No especificada') AS empresa,
+                COALESCE(MAX(a.modalidad), 'Presencial') AS modalidad,
+                COALESCE(MAX(a.instructor), 'No especificado') AS instructor,
                 COUNT(DISTINCT a.sesion_id)::int AS total_sesiones_asistidas,
                 json_agg(
                     json_build_object(
@@ -958,14 +1056,15 @@ app.get('/api/reporte/capacitacion/:capacitacionId', requireAdminAuth, async (re
                         'fecha_sesion', s.fecha,
                         'modalidad', a.modalidad,
                         'instructor', a.instructor,
-                        'fecha_registro', a.fecha_registro
+                        'fecha_registro', COALESCE(a.fecha_hora_registro, a.fecha_registro)
                     ) ORDER BY s.numero_sesion ASC, s.id ASC
                 ) AS detalle_sesiones
-            FROM asistencias a
+            FROM participantes p
+            JOIN asistencias a ON a.participant_id = p.id
             JOIN sesiones s ON a.sesion_id = s.id
-            WHERE s.capacitacion_id = $1
-            GROUP BY a.correo_usuario, a.nombre_usuario
-            ORDER BY total_sesiones_asistidas DESC, a.nombre_usuario ASC;
+            WHERE p.capacitacion_id = $1
+            GROUP BY p.id, p.nombre, p.email_principal, p.empresa
+            ORDER BY total_sesiones_asistidas DESC, p.nombre ASC;
         `;
         const reporteResult = await pool.query(reporteQuery, [capacitacionId]);
 
