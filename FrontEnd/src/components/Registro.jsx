@@ -433,6 +433,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
     };
 
     const sesionesActivas = eventoInfo?.sesiones ? eventoInfo.sesiones.filter(s => s.activa) : [];
+    const yaRegistradoEnEsta = Boolean(asistenciasPrevias[`${token}_${sesionSeleccionadaId}`]);
 
     // ----------------------------------------------------------------
     // RENDERIZADO: Estado de carga inicial
