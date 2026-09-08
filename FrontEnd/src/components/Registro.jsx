@@ -182,21 +182,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
             const previas = localStorage.getItem('asistencias_registradas_historial');
             if (previas) {
-                const historial = JSON.parse(previas);
-                setAsistenciasPrevias(historial);
-
-                // Bloqueo estricto por dispositivo: si ya se registró en este dispositivo para este QR/evento, mostrar credencial directamente
-                if (urlToken) {
-                    const yaRegistrado = historial[urlToken] || 
-                        Object.entries(historial).find(([k, v]) => k.startsWith(`${urlToken}_`) || (v && v.token === urlToken))?.[1];
-
-                    if (yaRegistrado) {
-                        setToken(urlToken);
-                        setRegistroExitoso(yaRegistrado);
-                        setLoadingInfo(false);
-                        return;
-                    }
-                }
+                setAsistenciasPrevias(JSON.parse(previas));
             }
         } catch (e) {
             console.warn('LocalStorage no disponible');
@@ -216,22 +202,6 @@ export default function Registro({ tokenProp, onIrAdmin }) {
         try {
             setLoadingInfo(true);
             setError(null);
-
-            // Verificar si este dispositivo ya tiene una asistencia registrada para este token
-            try {
-                const previas = localStorage.getItem('asistencias_registradas_historial');
-                if (previas) {
-                    const parsed = JSON.parse(previas);
-                    const regPrevio = parsed[tokenVal] || 
-                        Object.entries(parsed).find(([k, v]) => k.startsWith(`${tokenVal}_`) || (v && v.token === tokenVal))?.[1];
-                    if (regPrevio) {
-                        setRegistroExitoso(regPrevio);
-                        setLoadingInfo(false);
-                        return;
-                    }
-                }
-            } catch (e) {}
-
             const response = await axios.get(`${API_BASE_URL}/evento-info/${tokenVal}`);
             const data = response.data;
             setEventoInfo(data);
@@ -292,14 +262,12 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             return;
         }
 
-        // Validar si localmente este dispositivo ya cuenta con un registro para este evento/capacitación
-        const yaRegistrado = asistenciasPrevias[token] || 
-            Object.entries(asistenciasPrevias).find(([k, v]) => k.startsWith(`${token}_`) || (v && v.token === token))?.[1];
-
-        if (yaRegistrado) {
+        // Validar si localmente ya registró esta sesión con este mismo nombre o correo
+        const claveSesion = `${token}_${sesionSeleccionadaId}`;
+        if (asistenciasPrevias[claveSesion]) {
             hapticWarning();
-            setError(`Este dispositivo ya cuenta con una asistencia registrada para esta capacitación (${yaRegistrado.nombre_usuario || 'Participante'}). No se permiten registros duplicados.`);
-            setRegistroExitoso(yaRegistrado);
+            const previa = asistenciasPrevias[claveSesion];
+            setError(`Ya has confirmado tu asistencia en esta sesión como "${previa.nombre_usuario}". No es necesario registrarte dos veces.`);
             return;
         }
 
@@ -353,8 +321,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
                 const nuevoHistorial = {
                     ...asistenciasPrevias,
-                    [claveSesion]: regOffline,
-                    [token]: regOffline
+                    [claveSesion]: regOffline
                 };
                 localStorage.setItem('asistencias_registradas_historial', JSON.stringify(nuevoHistorial));
                 setAsistenciasPrevias(nuevoHistorial);
@@ -379,10 +346,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                 _hp_verificacion: hpVerificacion
             });
 
-            const reg = {
-                ...response.data.registro,
-                token: token
-            };
+            const reg = response.data.registro;
             setRegistroExitoso(reg);
             hapticSuccess();
 
@@ -397,8 +361,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
 
                 const nuevoHistorial = {
                     ...asistenciasPrevias,
-                    [claveSesion]: reg,
-                    [token]: reg
+                    [claveSesion]: reg
                 };
                 localStorage.setItem('asistencias_registradas_historial', JSON.stringify(nuevoHistorial));
                 setAsistenciasPrevias(nuevoHistorial);
@@ -459,20 +422,7 @@ export default function Registro({ tokenProp, onIrAdmin }) {
             if (err.response?.status === 409) {
                 setError(err.response?.data?.error || 'Ya has registrado tu asistencia en esta sesión con este nombre o correo electrónico.');
                 if (err.response?.data?.registro) {
-                    const reg = {
-                        ...err.response.data.registro,
-                        token: token
-                    };
-                    setRegistroExitoso(reg);
-                    try {
-                        const nuevoHistorial = {
-                            ...asistenciasPrevias,
-                            [`${token}_${sesionSeleccionadaId}`]: reg,
-                            [token]: reg
-                        };
-                        localStorage.setItem('asistencias_registradas_historial', JSON.stringify(nuevoHistorial));
-                        setAsistenciasPrevias(nuevoHistorial);
-                    } catch (e) {}
+                    setRegistroExitoso(err.response.data.registro);
                 }
             } else {
                 setError(err.response?.data?.error || 'Ocurrió un error al procesar tu asistencia. Inténtalo nuevamente.');
@@ -631,14 +581,10 @@ export default function Registro({ tokenProp, onIrAdmin }) {
                             </div>
                         </div>
 
-                        {/* Estado permanente: Asistencia registrada en este dispositivo */}
-                        <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3.5 text-center">
-                            <div className="flex items-center justify-center gap-2 text-emerald-300 text-xs font-semibold">
-                                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                                <span>Registro único completado en este dispositivo</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 mt-1">
-                                Tu asistencia ha quedado registrada de forma única e intransferible.
+                        <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-3 text-center">
+                            <p className="text-xs text-emerald-300 font-semibold flex items-center justify-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Asistencia Registrada Exitosamente</span>
                             </p>
                         </div>
                     </div>
