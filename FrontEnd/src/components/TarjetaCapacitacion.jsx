@@ -125,7 +125,7 @@ export default function TarjetaCapacitacion({
                     {/* Botón Proyectar QR */}
                     <button
                         type="button"
-                        onClick={() => onProyectarQR({ titulo: cap.titulo, url: qrUrl })}
+                        onClick={() => onProyectarQR && onProyectarQR({ titulo: cap.titulo, url: qrUrl, instructor: cap.instructor })}
                         className="hover:bg-slate-800/70 text-slate-300 hover:text-white border border-slate-700/50 rounded-xl px-3 py-2 text-xs font-medium flex items-center gap-1.5 transition-all min-h-[40px] cursor-pointer"
                         title="Proyectar o descargar código QR"
                     >

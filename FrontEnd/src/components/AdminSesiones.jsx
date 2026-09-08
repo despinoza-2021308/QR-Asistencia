@@ -436,41 +436,238 @@ export default function AdminSesiones({ onLogout }) {
         mostrarAlerta('exito', 'Enlace copiado al portapapeles');
     };
 
-    const descargarQR = (elementId, nombreArchivo) => {
+    const descargarQR = (elementId, tituloCapacitacion, instructor = null) => {
         const svgElement = document.getElementById(elementId);
-        if (!svgElement) return;
+        if (!svgElement) {
+            mostrarAlerta('error', 'No se encontró el elemento QR para generar la descarga.');
+            return;
+        }
 
-        const svgData = new XMLSerializer().serializeToString(svgElement);
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+        const tituloTexto = (tituloCapacitacion || 'Capacitación').trim();
+        const instructorTexto = instructor ? instructor.trim() : '';
+
+        // 1. Extraer y optimizar SVG a alta resolución vectorial (600x600 px)
+        let svgData = new XMLSerializer().serializeToString(svgElement);
+        if (!svgData.includes('xmlns=')) {
+            svgData = svgData.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+        }
+        svgData = svgData.replace(/width="[^"]+"/, 'width="600"').replace(/height="[^"]+"/, 'height="600"');
+
         const img = new Image();
+        img.crossOrigin = 'anonymous';
 
         img.onload = () => {
-            canvas.width = img.width + 80;
-            canvas.height = img.height + 80;
-            ctx.fillStyle = '#ffffff';
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            const canvasWidth = 680;
+            const paddingX = 48;
+            const maxTextWidth = canvasWidth - (paddingX * 2);
+
+            // Función auxiliar para dibujar rectángulos redondeados con máxima compatibilidad
+            const drawRoundedRect = (context, x, y, width, height, radius) => {
+                if (context.roundRect) {
+                    context.roundRect(x, y, width, height, radius);
+                    return;
+                }
+                context.moveTo(x + radius, y);
+                context.arcTo(x + width, y, x + width, y + height, radius);
+                context.arcTo(x + width, y + height, x, y + height, radius);
+                context.arcTo(x, y + height, x, y, radius);
+                context.arcTo(x, y, x + width, y, radius);
+            };
+
+            // Medir y dividir el título en líneas para evitar desbordamientos
+            const titleFont = 'bold 28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+            ctx.font = titleFont;
+
+            const words = tituloTexto.split(' ');
+            const titleLines = [];
+            let currentLine = '';
+
+            for (let i = 0; i < words.length; i++) {
+                const word = words[i];
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                const testWidth = ctx.measureText(testLine).width;
+                if (testWidth > maxTextWidth && i > 0) {
+                    titleLines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    currentLine = testLine;
+                }
+            }
+            if (currentLine) titleLines.push(currentLine);
+
+            const titleLineHeight = 38;
+            const titleBlockHeight = titleLines.length * titleLineHeight;
+
+            const hasInstructor = Boolean(instructorTexto);
+            const instructorLineHeight = 24;
+
+            // Dimensiones del QR y espaciados calculados
+            const qrSize = 360;
+            const topBarHeight = 8;
+            const topPadding = 38;
+            const tagHeight = 26;
+            const gapTagTitle = 16;
+            const gapTitleInstructor = hasInstructor ? 10 : 0;
+            const gapBeforeQR = 26;
+            const qrBoxPadding = 14;
+            const gapAfterQR = 26;
+            const instructionHeight = 44;
+            const footerGap = 20;
+            const footerHeight = 26;
+            const bottomPadding = 36;
+
+            const totalHeight = topBarHeight + 
+                topPadding + 
+                tagHeight + 
+                gapTagTitle + 
+                titleBlockHeight + 
+                (hasInstructor ? (gapTitleInstructor + instructorLineHeight) : 0) + 
+                gapBeforeQR + 
+                qrSize + (qrBoxPadding * 2) + 
+                gapAfterQR + 
+                instructionHeight + 
+                footerGap + 
+                footerHeight + 
+                bottomPadding;
+
+            canvas.width = canvasWidth;
+            canvas.height = Math.round(totalHeight);
+
+            // 1. Fondo Blanco Impecable
+            ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 40, 40);
 
-            // Soporte universal para iOS Safari y navegadores móviles modernos
+            // 2. Barra Superior con Gradiente Corporativo ONE Consulting
+            const barGradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            barGradient.addColorStop(0, '#0066FF');
+            barGradient.addColorStop(0.5, '#0088FF');
+            barGradient.addColorStop(1, '#00D2FF');
+            ctx.fillStyle = barGradient;
+            ctx.fillRect(0, 0, canvas.width, topBarHeight);
+
+            let cursorY = topBarHeight + topPadding;
+
+            // 3. Píldora / Etiqueta de Categoría "CONTROL DE ASISTENCIA"
+            const tagText = 'CONTROL DE ASISTENCIA';
+            ctx.font = 'bold 11px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            const tagTextWidth = ctx.measureText(tagText).width;
+            const tagPillWidth = tagTextWidth + 28;
+            const tagPillHeight = tagHeight;
+            const tagX = (canvasWidth - tagPillWidth) / 2;
+            const tagY = cursorY;
+
+            ctx.save();
+            ctx.fillStyle = '#EFF6FF';
+            ctx.strokeStyle = '#BFDBFE';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            drawRoundedRect(ctx, tagX, tagY, tagPillWidth, tagPillHeight, 13);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#1D4ED8';
+            ctx.fillText(tagText, canvasWidth / 2, tagY + (tagPillHeight / 2));
+            ctx.restore();
+
+            cursorY += tagPillHeight + gapTagTitle;
+
+            // 4. Título Principal de la Capacitación (ej. "Curso Auditores")
+            ctx.font = titleFont;
+            ctx.fillStyle = '#0F172A';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            for (let l = 0; l < titleLines.length; l++) {
+                ctx.fillText(titleLines[l], canvasWidth / 2, cursorY + (l * titleLineHeight));
+            }
+            cursorY += titleBlockHeight;
+
+            // 5. Instructor / Facilitador (si existe)
+            if (hasInstructor) {
+                cursorY += gapTitleInstructor;
+                ctx.font = '600 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+                ctx.fillStyle = '#475569';
+                ctx.fillText(`Instructor: ${instructorTexto}`, canvasWidth / 2, cursorY);
+                cursorY += instructorLineHeight;
+            }
+
+            cursorY += gapBeforeQR;
+
+            // 6. Recuadro de tarjeta para el Código QR
+            const qrBoxW = qrSize + (qrBoxPadding * 2);
+            const qrBoxH = qrSize + (qrBoxPadding * 2);
+            const qrBoxX = (canvasWidth - qrBoxW) / 2;
+            const qrBoxY = cursorY;
+
+            ctx.save();
+            ctx.fillStyle = '#F8FAFC';
+            ctx.strokeStyle = '#E2E8F0';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            drawRoundedRect(ctx, qrBoxX, qrBoxY, qrBoxW, qrBoxH, 20);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+
+            // 7. Dibujar el Código QR Nítido en el Centro
+            const qrImageX = qrBoxX + qrBoxPadding;
+            const qrImageY = qrBoxY + qrBoxPadding;
+            ctx.drawImage(img, qrImageX, qrImageY, qrSize, qrSize);
+
+            cursorY += qrBoxH + gapAfterQR;
+
+            // 8. Mensajes de Instrucción
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.font = '600 15px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillStyle = '#1E293B';
+            ctx.fillText('Escanea este código con la cámara de tu smartphone', canvasWidth / 2, cursorY);
+
+            ctx.font = '400 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillStyle = '#64748B';
+            ctx.fillText('Para registrar tu asistencia en la sesión correspondiente', canvasWidth / 2, cursorY + 22);
+
+            cursorY += instructionHeight + footerGap;
+
+            // 9. Línea divisoria y pie corporativo
+            ctx.strokeStyle = '#E2E8F0';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo((canvasWidth / 2) - 130, cursorY);
+            ctx.lineTo((canvasWidth / 2) + 130, cursorY);
+            ctx.stroke();
+
+            ctx.font = '500 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            ctx.fillStyle = '#94A3B8';
+            ctx.fillText('ONE Consulting • Acreditación y Asistencia Oficial', canvasWidth / 2, cursorY + 12);
+
+            // 10. Generar y descargar archivo PNG
+            const safeName = `QR - ${tituloTexto.replace(/[/\\?%*:|"<>]/g, '-').trim()}`;
+
             canvas.toBlob(async (blob) => {
-                if (!blob) return;
+                if (!blob) {
+                    mostrarAlerta('error', 'Error al procesar la imagen para descarga.');
+                    return;
+                }
 
-                // En iOS Safari / iPhone: si navigator.share está disponible para archivos, compartir directamente a Fotos o Archivos
+                // Compartir nativamente en iPhone/Safari si está soportado
                 if (typeof navigator !== 'undefined' && navigator.canShare) {
                     try {
-                        const file = new File([blob], `${nombreArchivo}.png`, { type: 'image/png' });
+                        const file = new File([blob], `${safeName}.png`, { type: 'image/png' });
                         if (navigator.canShare({ files: [file] })) {
                             await navigator.share({
-                                title: `Código QR - ${nombreArchivo}`,
+                                title: `Código QR - ${tituloTexto}`,
                                 files: [file]
                             });
-                            mostrarAlerta('exito', 'Código QR compartido o guardado en el carrete.');
+                            mostrarAlerta('exito', 'Código QR compartido o guardado en tu dispositivo.');
                             return;
                         }
                     } catch (e) {
                         if (e.name !== 'AbortError') console.warn(e);
-                        return;
                     }
                 }
 
@@ -478,13 +675,18 @@ export default function AdminSesiones({ onLogout }) {
                 const blobUrl = URL.createObjectURL(blob);
                 const downloadLink = document.createElement('a');
                 downloadLink.href = blobUrl;
-                downloadLink.download = `${nombreArchivo}.png`;
+                downloadLink.download = `${safeName}.png`;
                 document.body.appendChild(downloadLink);
                 downloadLink.click();
                 document.body.removeChild(downloadLink);
                 setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-                mostrarAlerta('exito', 'Código QR descargado');
+                mostrarAlerta('exito', `Código QR descargado: "${tituloTexto}"`);
             }, 'image/png');
+        };
+
+        img.onerror = (err) => {
+            console.error('Error al cargar SVG para canvas:', err);
+            mostrarAlerta('error', 'No se pudo generar la imagen del código QR.');
         };
 
         img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
@@ -1046,7 +1248,11 @@ export default function AdminSesiones({ onLogout }) {
                                 </button>
 
                                 <button
-                                    onClick={() => setModalQRData({ titulo: capacitacionSeleccionada.titulo, url: getQrUrl(capacitacionSeleccionada) })}
+                                    onClick={() => setModalQRData({
+                                        titulo: capacitacionSeleccionada.titulo,
+                                        url: getQrUrl(capacitacionSeleccionada),
+                                        instructor: capacitacionSeleccionada.instructor
+                                    })}
                                     className="liquid-glass-pill hover:bg-white/10 text-slate-200 text-xs font-semibold px-4 py-2.5 rounded-xl transition inline-flex items-center gap-2 min-h-[40px]"
                                 >
                                     <QrCode className="w-4 h-4 text-brand-400" />
@@ -1370,12 +1576,22 @@ export default function AdminSesiones({ onLogout }) {
                                     {capacitacionSeleccionada.titulo}
                                 </h2>
 
+                                {capacitacionSeleccionada.instructor && (
+                                    <p className="text-xs text-brand-300 font-medium mb-2">
+                                        Facilitador: <span className="text-slate-200">{capacitacionSeleccionada.instructor}</span>
+                                    </p>
+                                )}
+
                                 <p className="text-xs text-slate-400 mb-6">
                                     Válido para todas las {sesiones.length} sesiones de esta capacitación.
                                 </p>
 
                                 <div
-                                    onClick={() => setModalQRData({ titulo: capacitacionSeleccionada.titulo, url: getQrUrl(capacitacionSeleccionada) })}
+                                    onClick={() => setModalQRData({
+                                        titulo: capacitacionSeleccionada.titulo,
+                                        url: getQrUrl(capacitacionSeleccionada),
+                                        instructor: capacitacionSeleccionada.instructor
+                                    })}
                                     className="bg-white p-5 rounded-2xl inline-block cursor-pointer hover:scale-[1.02] transition-transform shadow-2xl mb-6"
                                     title="Clic para proyectar en pantalla grande"
                                 >
@@ -1401,7 +1617,7 @@ export default function AdminSesiones({ onLogout }) {
                                     </button>
 
                                     <button
-                                        onClick={() => descargarQR('qr-svg-capacitacion', capacitacionSeleccionada.titulo)}
+                                        onClick={() => descargarQR('qr-svg-capacitacion', capacitacionSeleccionada.titulo, capacitacionSeleccionada.instructor)}
                                         className="liquid-glass-pill hover:bg-white/10 text-slate-200 text-xs font-medium py-2.5 px-3 rounded-xl transition inline-flex items-center justify-center gap-1.5"
                                     >
                                         <Download className="w-3.5 h-3.5" />
@@ -1693,6 +1909,12 @@ export default function AdminSesiones({ onLogout }) {
                                 {modalQRData.titulo}
                             </h3>
 
+                            {modalQRData.instructor && (
+                                <p className="text-xs text-brand-300 font-medium mb-3">
+                                    Facilitador: <span className="text-slate-200">{modalQRData.instructor}</span>
+                                </p>
+                            )}
+
                             <div className="bg-white p-4 sm:p-6 rounded-3xl inline-block shadow-2xl mb-4 sm:mb-6 max-w-full">
                                 <div className="flex justify-center items-center">
                                     <QRCodeSVG
@@ -1719,7 +1941,7 @@ export default function AdminSesiones({ onLogout }) {
                                     <span>{copiadoExito ? 'Enlace Copiado' : 'Copiar Enlace'}</span>
                                 </button>
                                 <button
-                                    onClick={() => descargarQR('qr-svg-modal', modalQRData.titulo)}
+                                    onClick={() => descargarQR('qr-svg-modal', modalQRData.titulo, modalQRData.instructor)}
                                     className="w-full sm:w-auto liquid-glass-pill hover:bg-white/10 text-slate-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition inline-flex items-center justify-center gap-1.5 min-h-[44px]"
                                 >
                                     <Download className="w-3.5 h-3.5" />
