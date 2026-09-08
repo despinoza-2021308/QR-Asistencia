@@ -623,8 +623,10 @@ app.get('/api/sesiones/:id/asistencias', requireAdminAuth, async (req, res) => {
                 a.modalidad, 
                 a.instructor, 
                 a.nombre_actividad, 
+                s.fecha AS fecha_sesion,
                 COALESCE(a.fecha_hora_registro, a.fecha_registro) AS fecha_registro
              FROM asistencias a
+             JOIN sesiones s ON a.sesion_id = s.id
              LEFT JOIN participantes p ON a.participant_id = p.id
              WHERE a.sesion_id = $1
              ORDER BY COALESCE(a.fecha_hora_registro, a.fecha_registro) DESC`,

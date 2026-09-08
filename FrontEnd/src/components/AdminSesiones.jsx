@@ -5,7 +5,7 @@ import {
     Plus, LogOut, CheckCircle2, AlertCircle, BookOpen, Layers, Users,
     Search, Trash2, QrCode, Maximize2, ChevronRight, ArrowLeft, Download,
     Building2, Laptop, X, Copy, Check, FileSpreadsheet, FileText, Loader2, ShieldCheck,
-    Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server, RotateCcw
+    Clock, ExternalLink, Sparkles, Activity, TrendingUp, Wifi, Server, RotateCcw, Calendar
 } from 'lucide-react';
 import logoOne from '../assets/logo.png';
 import PanelKPIs from './PanelKPIs';
@@ -1341,6 +1341,15 @@ export default function AdminSesiones({ onLogout }) {
                                                     <span className="px-3 py-1 rounded-full text-xs font-semibold liquid-glass-pill text-brand-300 tabular-numbers">
                                                         {sesionDetalle.total_asistentes} registros
                                                     </span>
+                                                    {sesionDetalle.sesion.fecha && (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold liquid-glass-pill text-slate-200">
+                                                            <Calendar className="w-3.5 h-3.5 text-brand-400" />
+                                                            <span>Fecha: {(() => {
+                                                                const d = parseFechaSegura(sesionDetalle.sesion.fecha);
+                                                                return d ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : String(sesionDetalle.sesion.fecha).split('T')[0];
+                                                            })()}</span>
+                                                        </span>
+                                                    )}
                                                     {autoRefreshActivo && (
                                                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/50 text-emerald-300 border border-emerald-800/50">
                                                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1392,43 +1401,60 @@ export default function AdminSesiones({ onLogout }) {
                                                             <th className="py-3.5 px-4">Modalidad</th>
                                                             <th className="py-3.5 px-4">Instructor</th>
                                                             <th className="py-3.5 px-4">Correo Electrónico</th>
+                                                            <th className="py-3.5 px-4">Fecha</th>
                                                             <th className="py-3.5 px-4 text-right">Hora Registro</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-white/[0.05]">
-                                                        {sesionDetalle.asistentes.map((a, idx) => (
-                                                            <tr key={a.id} className="hover:bg-white/[0.04] transition-colors">
-                                                                <td className="py-3.5 px-4 font-mono text-slate-500 tabular-numbers">{idx + 1}</td>
-                                                                <td className="py-3.5 px-4 font-bold text-white whitespace-nowrap">{a.nombre_usuario}</td>
-                                                                <td className="py-3.5 px-4 whitespace-nowrap">
-                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg liquid-glass-pill text-slate-200 text-[11px]">
-                                                                        <Building2 className="w-3 h-3 text-brand-400" />
-                                                                        {a.empresa || '-'}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="py-3.5 px-4 whitespace-nowrap">
-                                                                    {a.modalidad === 'Virtual' ? (
-                                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                                                                            <Laptop className="w-3 h-3" />
-                                                                            Virtual
+                                                        {sesionDetalle.asistentes.map((a, idx) => {
+                                                            const d = parseFechaSegura(a.fecha_registro);
+                                                            const fechaStr = (() => {
+                                                                const fuente = a.fecha_sesion || a.fecha_registro || sesionDetalle.sesion.fecha;
+                                                                if (!fuente) return '-';
+                                                                const f = parseFechaSegura(fuente);
+                                                                return f ? f.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : String(fuente).split('T')[0];
+                                                            })();
+
+                                                            return (
+                                                                <tr key={a.id} className="hover:bg-white/[0.04] transition-colors">
+                                                                    <td className="py-3.5 px-4 font-mono text-slate-500 tabular-numbers">{idx + 1}</td>
+                                                                    <td className="py-3.5 px-4 font-bold text-white whitespace-nowrap">{a.nombre_usuario}</td>
+                                                                    <td className="py-3.5 px-4 whitespace-nowrap">
+                                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg liquid-glass-pill text-slate-200 text-[11px]">
+                                                                            <Building2 className="w-3 h-3 text-brand-400" />
+                                                                            {a.empresa || '-'}
                                                                         </span>
-                                                                    ) : (
-                                                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-brand-500/10 text-brand-300 border border-brand-500/20">
-                                                                            <Building2 className="w-3 h-3" />
-                                                                            Presencial
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4 whitespace-nowrap">
+                                                                        {a.modalidad === 'Virtual' ? (
+                                                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                                                                                <Laptop className="w-3 h-3" />
+                                                                                Virtual
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-brand-500/10 text-brand-300 border border-brand-500/20">
+                                                                                <Building2 className="w-3 h-3" />
+                                                                                Presencial
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">{a.instructor || '-'}</td>
+                                                                    <td className="py-3.5 px-4 font-mono text-slate-400 whitespace-nowrap text-[11px]">{a.correo_usuario}</td>
+                                                                    <td className="py-3.5 px-4 whitespace-nowrap">
+                                                                        <span className="inline-flex items-center gap-1.5 text-slate-200 tabular-numbers font-medium text-[11px]">
+                                                                            <Calendar className="w-3.5 h-3.5 text-brand-400" />
+                                                                            {fechaStr}
                                                                         </span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">{a.instructor || '-'}</td>
-                                                                <td className="py-3.5 px-4 font-mono text-slate-400 whitespace-nowrap text-[11px]">{a.correo_usuario}</td>
-                                                                <td className="py-3.5 px-4 text-right text-slate-400 whitespace-nowrap tabular-numbers">
-                                                                    {(() => {
-                                                                        const d = parseFechaSegura(a.fecha_registro);
-                                                                        return d ? d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '-';
-                                                                    })()}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
+                                                                    </td>
+                                                                    <td className="py-3.5 px-4 text-right text-slate-400 whitespace-nowrap tabular-numbers">
+                                                                        <span className="inline-flex items-center justify-end gap-1">
+                                                                            <Clock className="w-3 h-3 text-slate-500" />
+                                                                            {d ? d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
                                                     </tbody>
                                                 </table>
                                             </div>
@@ -1508,6 +1534,19 @@ export default function AdminSesiones({ onLogout }) {
                                                                     {sesion.total_asistentes ?? 0}
                                                                 </span>
                                                             </div>
+
+                                                            {sesion.fecha && (
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-slate-400 font-medium">Fecha:</span>
+                                                                    <span className="inline-flex items-center gap-1.5 text-slate-300 font-medium tabular-numbers">
+                                                                        <Calendar className="w-3 h-3 text-brand-400" />
+                                                                        {(() => {
+                                                                            const d = parseFechaSegura(sesion.fecha);
+                                                                            return d ? d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : String(sesion.fecha).split('T')[0];
+                                                                        })()}
+                                                                    </span>
+                                                                </div>
+                                                            )}
 
                                                             <div className="pt-2 border-t border-white/[0.08] flex items-center justify-between">
                                                                 <span className="text-slate-400">Estado:</span>
